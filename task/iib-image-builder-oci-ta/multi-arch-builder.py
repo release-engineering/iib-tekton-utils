@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Multi-architecture container builder with retry logic and cache management.
-This script orchestrates buildah operations for building multi-arch images.
+This script orchestrates buildah operations for building single or multi-arch images.
 """
 
 import argparse
@@ -431,18 +431,14 @@ class MultiArchBuilder:
                 exc_msg=f'Failed to push the manifest list to {output_pull_spec}',
             )
     
-    def build_all(self, ca_bundle_path: Optional[str] = None) -> Dict[str, Any]:
+    def _prepare_for_build(self, ca_bundle_path: Optional[str] = None) -> None:
         """
-        Build multi-arch image and return results.
+        Prepare the system for build operations.
 
         :param Optional[str] ca_bundle_path: path to CA bundle file for trust updates
-        :return: dictionary containing build results including image name, digest, platforms, etc.
-        :rtype: Dict[str, Any]
-        :raises IIBError: if the build process fails
+        :raises IIBError: if system preparation fails
         :raises RuntimeError: if Dockerfile validation fails
         """
-        logger.info("Starting multi-architecture build")
-        
         # Validate Dockerfile exists
         if not self.validate_dockerfile():
             raise RuntimeError("Dockerfile validation failed")
@@ -478,6 +474,20 @@ class MultiArchBuilder:
         except (OSError, IOError) as e:
             logger.error(f"Failed to copy cache to build context: {e}")
             raise IIBError(f"Failed to copy cache to build context: {e}")
+    
+    def build_multiple_arches(self, ca_bundle_path: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Build multi-arch image and return results.
+
+        :param Optional[str] ca_bundle_path: path to CA bundle file for trust updates
+        :return: dictionary containing build results including image name, digest, platforms, etc.
+        :rtype: Dict[str, Any]
+        :raises IIBError: if the build process fails
+        :raises RuntimeError: if Dockerfile validation fails
+        """
+        logger.info("Starting multi-architecture build")
+        
+        self._prepare_for_build(ca_bundle_path=ca_bundle_path)
 
         # Build images for each platform
         platform_images = []
@@ -511,6 +521,63 @@ class MultiArchBuilder:
             'platform_images': platform_images,
             'opm_version': self.config.opm_version
         }
+        
+    def build_single_arch(self, ca_bundle_path: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Build a single-arch image and return results.
+
+        :param Optional[str] ca_bundle_path: path to CA bundle file for trust updates
+        :return: dictionary containing build results including image name, digest, platform, etc.
+        :rtype: Dict[str, Any]
+        :raises IIBError: if the build process fails
+        :raises RuntimeError: if Dockerfile validation fails
+        """
+        logger.info("Starting single-architecture build")
+        self._prepare_for_build(ca_bundle_path=ca_bundle_path)
+        
+        # Build image for the specified platform
+        try:
+            platform = self.config.platforms[0]
+            platform_image = f"{self.config.image_name}-{platform}"
+            self._build_image(platform, platform_image)
+        except (IIBError, ExternalServiceError) as e:
+            logger.error(f"Failed to build for {platform}: {e}")
+            raise
+        
+        # Create and push manifest
+        logger.info("Creating and pushing multi-arch manifest")
+        
+        # Create and push manifest list
+        self._create_and_push_manifest_list([platform_image])
+        
+        # Get image digest
+        inspect_cmd = ['skopeo', 'inspect', '--no-tags', f'docker://{self.config.image_name}']
+        result = run_cmd(inspect_cmd, {'timeout': 60}, "inspect image failed")
+        image_data = json.loads(result)
+        digest = image_data.get('Digest', '')
+        
+        return{
+            'image_name': self.config.image_name,
+            'digest': digest,
+            'platforms': [platform],
+            'platform_images': [platform_image],
+            'opm_version': self.config.opm_version
+        }
+        
+    def build_all(self, ca_bundle_path: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Build the image for the required architecture(s) and return results.
+
+        :param Optional[str] ca_bundle_path: path to CA bundle file for trust updates
+        :return: dictionary containing build results including image name, digest, platforms, etc.
+        :rtype: Dict[str, Any]
+        :raises IIBError: if the build process fails
+        :raises RuntimeError: if Dockerfile validation fails
+        """
+        if len(self.config.platforms) == 1 and self.config.platforms[0] == 'amd64':
+            return self.build_single_arch(ca_bundle_path=ca_bundle_path)
+        else:
+            return self.build_multiple_arches(ca_bundle_path=ca_bundle_path)
 
 
 def load_config_from_env() -> BuildConfig:
