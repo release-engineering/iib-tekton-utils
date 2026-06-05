@@ -1,0 +1,66 @@
+# iib-tekton-utils
+
+Tekton task for building multi-architecture Operator Index Images (IIB) using Python orchestration with buildah.
+
+## What This Does
+
+Builds container images for OLM file-based catalogs across multiple architectures (amd64, arm64, ppc64le, s390x), generates OPM cache, and pushes multi-arch manifest lists.
+
+## Tech Stack
+
+- Python 3.12+ (orchestration)
+- Tekton Tasks (Kubernetes CI/CD)
+- Buildah (container builds)
+- OPM (Operator Package Manager)
+- pytest (testing)
+
+## Key Files
+
+- `task/iib-image-builder-oci-ta/iib-image-builder-oci-ta.yaml` - Tekton Task definition
+- `task/iib-image-builder-oci-ta/multi-arch-builder.py` - Python build orchestrator
+- `Containerfile.iib-build-task` - Container image for the build task
+- `pyproject.toml` - Project config and test dependencies
+
+## Directory Structure
+
+```
+task/iib-image-builder-oci-ta/   # Tekton task + Python script
+tests/
+  conftest.py                    # Shared fixtures, module loader for hyphenated filename
+  unit/test_multi_arch_builder.py    # Unit tests for Python script
+  tekton/test_iib_image_builder_task.py  # YAML structure validation
+.github/workflows/               # CI workflows
+```
+
+## Commands
+
+```bash
+# Install test dependencies
+pip install ".[test]"
+
+# Run all tests
+pytest
+
+# Run unit tests only
+pytest tests/unit/
+
+# Run Tekton task validation tests only
+pytest tests/tekton/
+
+# Build container image
+buildah build -f Containerfile.iib-build-task -t iib-build-task:latest .
+```
+
+## Architecture Notes
+
+- `MultiArchBuilder` class in multi-arch-builder.py:201 orchestrates the build
+- `generate_cache_locally()` at :144 runs OPM to create FBC cache
+- Retry logic via tenacity for buildah operations (:271, :365)
+- Exception hierarchy: `IIBBaseException` > `IIBError`, `ExternalServiceError`
+- Tests use `conftest.py` to load hyphenated `multi-arch-builder.py` via importlib
+
+## Test Coverage
+
+- Unit tests mock all subprocess/filesystem calls (no container runtime needed)
+- Tekton tests validate YAML structure with pyyaml (no cluster needed)
+- Key fixtures: `build_config`, `builder` (conftest.py:46, :62)
