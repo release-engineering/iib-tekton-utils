@@ -13,19 +13,25 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import List, Dict, Any, Optional, Set
+from typing import List, Dict, Any, Optional
 from dataclasses import dataclass, field
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type, before_sleep_log
+from tenacity import (
+    retry,
+    stop_after_attempt,
+    wait_exponential,
+    retry_if_exception_type,
+    before_sleep_log,
+)
 
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    datefmt='%Y-%m-%dT%H:%M:%S'
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    datefmt="%Y-%m-%dT%H:%M:%S",
 )
 logger = logging.getLogger(__name__)
 
-DEFAULT_IIB_BUILD_METADATA_FILE_PATH = '.iib-build-metadata.json'
+DEFAULT_IIB_BUILD_METADATA_FILE_PATH = ".iib-build-metadata.json"
 
 
 class IIBBaseException(Exception):
@@ -79,44 +85,44 @@ def run_cmd(
     :rtype: str
     :raises IIBError: if the command fails
     """
-    exc_msg = exc_msg or 'An unexpected error occurred'
+    exc_msg = exc_msg or "An unexpected error occurred"
     if not params:
         params = {}
-    params.setdefault('universal_newlines', True)
-    params.setdefault('encoding', 'utf-8')
-    params.setdefault('stderr', subprocess.PIPE)
-    params.setdefault('stdout', subprocess.PIPE)
+    params.setdefault("universal_newlines", True)
+    params.setdefault("encoding", "utf-8")
+    params.setdefault("stderr", subprocess.PIPE)
+    params.setdefault("stdout", subprocess.PIPE)
 
-    logger.debug('Running the command "%s"', ' '.join(cmd))
+    logger.debug('Running the command "%s"', " ".join(cmd))
     response: subprocess.CompletedProcess = subprocess.run(cmd, **params)
 
     if strict and response.returncode != 0:
-        if set(['buildah', 'manifest', 'rm']) <= set(cmd) and 'image not known' in response.stderr:
-            raise IIBError('Manifest list not found locally.')
-        logger.error('The command "%s" failed with: %s', ' '.join(cmd), response.stderr)
+        if set(["buildah", "manifest", "rm"]) <= set(cmd) and "image not known" in response.stderr:
+            raise IIBError("Manifest list not found locally.")
+        logger.error('The command "%s" failed with: %s', " ".join(cmd), response.stderr)
         regex: str
         match: Optional[re.Match]
-        if Path(cmd[0]).stem.startswith('opm'):
+        if Path(cmd[0]).stem.startswith("opm"):
             # Capture the error message right before the help display
-            regex = r'^(?:Error: )(.+)$'
+            regex = r"^(?:Error: )(.+)$"
             match = _regex_reverse_search(regex, response)
             if match:
-                raise IIBError(f'{exc_msg.rstrip(".")}: {match.groups()[0]}')
+                raise IIBError(f"{exc_msg.rstrip('.')}: {match.groups()[0]}")
             elif (
                 '"permissive mode disabled" error="error deleting packages from'
-                ' database: error removing operator package' in response.stderr
+                " database: error removing operator package" in response.stderr
             ):
                 raise IIBError("Error deleting packages from database")
-        elif cmd[0] == 'buildah':
+        elif cmd[0] == "buildah":
             # Check for HTTP 403 or 50X errors on buildah
             network_regexes = [
-                r'.*([e,E]rror:? creating build container).*(:?(403|50[0-9]|125)\s?.*$)',
-                r'.*(read\/write on closed pipe.*$)',
+                r".*([e,E]rror:? creating build container).*(:?(403|50[0-9]|125)\s?.*$)",
+                r".*(read\/write on closed pipe.*$)",
             ]
             for regex in network_regexes:
                 match = _regex_reverse_search(regex, response)
                 if match:
-                    raise ExternalServiceError(f'{exc_msg}: {": ".join(match.groups()).strip()}')
+                    raise ExternalServiceError(f"{exc_msg}: {': '.join(match.groups()).strip()}")
 
         raise IIBError(exc_msg)
 
@@ -126,6 +132,7 @@ def run_cmd(
 @dataclass
 class BuildConfig:
     """Configuration for the multi-arch build."""
+
     image_name: str
     dockerfile_path: str
     context_path: str
@@ -134,14 +141,16 @@ class BuildConfig:
     cache_dir: str
     commit_sha: str
     opm_version: str
-    binary_image: str = ''
+    binary_image: str = ""
     # Architecture mapping for platform names to expected architecture values
-    arch_map: Dict[str, str] = field(default_factory=lambda: {
-        'amd64': 'amd64',
-        'arm64': 'arm64', 
-        'ppc64le': 'ppc64le',
-        's390x': 's390x'
-    })
+    arch_map: Dict[str, str] = field(
+        default_factory=lambda: {
+            "amd64": "amd64",
+            "arm64": "arm64",
+            "ppc64le": "ppc64le",
+            "s390x": "s390x",
+        }
+    )
 
 
 def resolve_iib_build_metadata_path(context_path: str, metadata_file_path: str) -> Path:
@@ -171,21 +180,17 @@ def load_iib_build_metadata(metadata_path: Path) -> Dict[str, Any]:
     :raises IIBError: if the file is missing or contains invalid JSON
     """
     if not metadata_path.is_file():
-        raise IIBError(
-            f'IIB build metadata file not found: {metadata_path}'
-        )
+        raise IIBError(f"IIB build metadata file not found: {metadata_path}")
 
-    logger.info('Loading IIB build metadata from %s', metadata_path)
+    logger.info("Loading IIB build metadata from %s", metadata_path)
     try:
-        with open(metadata_path, encoding='utf-8') as metadata_file:
+        with open(metadata_path, encoding="utf-8") as metadata_file:
             metadata = json.load(metadata_file)
     except json.JSONDecodeError as exc:
-        raise IIBError(f'Invalid JSON in {metadata_path}: {exc}') from exc
+        raise IIBError(f"Invalid JSON in {metadata_path}: {exc}") from exc
 
     if not isinstance(metadata, dict):
-        raise IIBError(
-            f'IIB build metadata must be a JSON object, got {type(metadata).__name__}'
-        )
+        raise IIBError(f"IIB build metadata must be a JSON object, got {type(metadata).__name__}")
 
     return metadata
 
@@ -200,13 +205,13 @@ def opm_version_from_metadata(metadata: Dict[str, Any]) -> Optional[str]:
     :return: normalized OPM version, or None if not set in metadata
     :rtype: Optional[str]
     """
-    raw_version = metadata.get('opm_version')
+    raw_version = metadata.get("opm_version")
     if raw_version is None:
         return None
 
     version = str(raw_version).strip()
-    if version.startswith('opm-'):
-        version = version[len('opm-'):]
+    if version.startswith("opm-"):
+        version = version.removeprefix("opm-")
     return version
 
 
@@ -219,17 +224,17 @@ def labels_from_metadata(metadata: Dict[str, Any]) -> Optional[List[str]]:
     :rtype: Optional[List[str]]
     :raises IIBError: if ``labels`` is present but not a JSON object
     """
-    raw_labels = metadata.get('labels')
+    raw_labels = metadata.get("labels")
     if raw_labels is None:
         return None
 
     if not isinstance(raw_labels, dict):
         raise IIBError(
-            'Invalid labels in IIB build metadata file: '
-            f'expected object, got {type(raw_labels).__name__}'
+            "Invalid labels in IIB build metadata file: "
+            f"expected object, got {type(raw_labels).__name__}"
         )
 
-    return [f'{key}={value}' for key, value in raw_labels.items()]
+    return [f"{key}={value}" for key, value in raw_labels.items()]
 
 
 def arches_from_metadata(metadata: Dict[str, Any]) -> Optional[List[str]]:
@@ -241,21 +246,21 @@ def arches_from_metadata(metadata: Dict[str, Any]) -> Optional[List[str]]:
     :rtype: Optional[List[str]]
     :raises IIBError: if ``arches`` is present but invalid or empty
     """
-    raw_arches = metadata.get('arches')
+    raw_arches = metadata.get("arches")
     if raw_arches is None:
         return None
 
     if not isinstance(raw_arches, list):
         raise IIBError(
-            'Invalid arches in IIB build metadata file: '
-            f'expected array, got {type(raw_arches).__name__}'
+            "Invalid arches in IIB build metadata file: "
+            f"expected array, got {type(raw_arches).__name__}"
         )
 
     arches = [str(arch).strip() for arch in raw_arches if str(arch).strip()]
     if not arches:
         raise IIBError(
-            'Invalid arches in IIB build metadata file: '
-            'array must contain at least one architecture'
+            "Invalid arches in IIB build metadata file: "
+            "array must contain at least one architecture"
         )
 
     return arches
@@ -270,22 +275,19 @@ def binary_image_from_metadata(metadata: Dict[str, Any]) -> Optional[str]:
     :rtype: Optional[str]
     :raises IIBError: if ``binary_image`` is present but invalid or empty
     """
-    raw_binary_image = metadata.get('binary_image')
+    raw_binary_image = metadata.get("binary_image")
     if raw_binary_image is None:
         return None
 
     if not isinstance(raw_binary_image, str):
         raise IIBError(
-            'Invalid binary_image in IIB build metadata file: '
-            f'expected string, got {type(raw_binary_image).__name__}'
+            "Invalid binary_image in IIB build metadata file: "
+            f"expected string, got {type(raw_binary_image).__name__}"
         )
 
     binary_image = raw_binary_image.strip()
     if not binary_image:
-        raise IIBError(
-            'Invalid binary_image in IIB build metadata file: '
-            'value must not be empty'
-        )
+        raise IIBError("Invalid binary_image in IIB build metadata file: value must not be empty")
 
     return binary_image
 
@@ -312,15 +314,15 @@ def generate_cache_locally(
 
     cmd = [
         opm_binary,
-        'serve',
+        "serve",
         os.path.abspath(fbc_dir),
-        f'--cache-dir={local_cache_path}',
-        '--cache-only',
-        '--termination-log',
-        '/dev/null',
+        f"--cache-dir={local_cache_path}",
+        "--cache-only",
+        "--termination-log",
+        "/dev/null",
     ]
 
-    logger.info('Generating cache for the file-based catalog')
+    logger.info("Generating cache for the file-based catalog")
 
     # Clean up existing cache directory
     if os.path.exists(local_cache_path):
@@ -333,7 +335,7 @@ def generate_cache_locally(
                 shutil.rmtree(item_path)
 
     # Run the opm command
-    run_cmd(cmd, {'cwd': base_dir}, exc_msg='Failed to generate cache for file-based catalog')
+    run_cmd(cmd, {"cwd": base_dir}, exc_msg="Failed to generate cache for file-based catalog")
 
     try:
         cache_contents = os.listdir(local_cache_path)
@@ -350,10 +352,10 @@ def generate_cache_locally(
 
 class MultiArchBuilder:
     """Orchestrates multi-architecture container builds."""
-    
+
     def __init__(self, config: BuildConfig):
         self.config = config
-        
+
     def validate_dockerfile(self) -> bool:
         """
         Validate that Dockerfile exists.
@@ -377,15 +379,15 @@ class MultiArchBuilder:
         if not Path(ca_bundle_path).exists():
             logger.warning(f"CA bundle not found at {ca_bundle_path}")
             return
-            
+
         logger.info("Updating CA trust certificates")
-        
+
         try:
             # Copy CA bundle to anchors directory
-            run_cmd(['cp', '-vf', ca_bundle_path, '/etc/pki/ca-trust/source/anchors/'])
-            
+            run_cmd(["cp", "-vf", ca_bundle_path, "/etc/pki/ca-trust/source/anchors/"])
+
             # Update CA trust
-            run_cmd(['update-ca-trust'])
+            run_cmd(["update-ca-trust"])
             logger.info("✓ CA trust updated successfully")
         except IIBError as e:
             logger.error(f"✗ Failed to update CA trust: {e}")
@@ -398,21 +400,25 @@ class MultiArchBuilder:
         :raises IIBError: if system preparation fails
         """
         logger.info("Preparing system for buildah operations")
-        
+
         try:
             # Fix permissions on /var/lib/containers
-            run_cmd(['chown', 'root:root', '/var/lib/containers'])
-            
+            run_cmd(["chown", "root:root", "/var/lib/containers"])
+
             # Configure short-name-mode
-            run_cmd([
-                'sed', '-i', r's/^\s*short-name-mode\s*=\s*.*/short-name-mode = "disabled"/',
-                '/etc/containers/registries.conf'
-            ])
-            
+            run_cmd(
+                [
+                    "sed",
+                    "-i",
+                    r's/^\s*short-name-mode\s*=\s*.*/short-name-mode = "disabled"/',
+                    "/etc/containers/registries.conf",
+                ]
+            )
+
             # Set up user namespace
-            with open('/etc/subuid', 'a') as f:
-                f.write('root:1:4294967294\n')
-                
+            with open("/etc/subuid", "a") as f:
+                f.write("root:1:4294967294\n")
+
             logger.info("✓ System prepared successfully")
         except IIBError as e:
             logger.error(f"✗ Failed to prepare system: {e}")
@@ -434,68 +440,69 @@ class MultiArchBuilder:
         :raises IIBError: if the build fails
         """
         logger.info(
-            'Building the container image with the %s dockerfile for arch %s and tagging it as %s',
+            "Building the container image with the %s dockerfile for arch %s and tagging it as %s",
             os.path.basename(self.config.dockerfile_path),
             arch,
             destination,
         )
-        
+
         # Prepare buildah command with improved options
         cmd = [
-            'buildah',
-            'bud',
-            '--no-cache',
-            '--format',
-            'docker',
-            '--override-arch',
+            "buildah",
+            "bud",
+            "--no-cache",
+            "--format",
+            "docker",
+            "--override-arch",
             arch,
-            '--arch',
+            "--arch",
             arch,
-            '--tls-verify=true',
-            '--ulimit', 'nofile=4096:4096',
-            '-t',
+            "--tls-verify=true",
+            "--ulimit",
+            "nofile=4096:4096",
+            "-t",
             destination,
-            '-f',
+            "-f",
             self.config.dockerfile_path,
         ]
-        
+
         # Add labels
         for label in self.config.labels:
-            cmd.extend(['--label', label.strip()])
+            cmd.extend(["--label", label.strip()])
 
         if self.config.binary_image:
-            cmd.extend(['--build-arg', f'BINARY_IMAGE={self.config.binary_image}'])
+            cmd.extend(["--build-arg", f"BINARY_IMAGE={self.config.binary_image}"])
 
         # Add context
         cmd.append(self.config.context_path)
-        
+
         # Execute build with retry logic
-        run_cmd(cmd, {'timeout': 3600}, f"build for {arch} failed")
-        
+        run_cmd(cmd, {"timeout": 3600}, f"build for {arch} failed")
+
         # Verify architecture was set correctly
-        logger.debug('Verifying that %s was built with expected arch %s', destination, arch)
+        logger.debug("Verifying that %s was built with expected arch %s", destination, arch)
         self._verify_image_architecture(destination, arch)
 
     def _verify_image_architecture(self, image_name: str, expected_arch: str) -> None:
         """
         Verify that the built image has the correct architecture using skopeo inspect.
-        
+
         :param str image_name: the image name to verify
         :param str expected_arch: the expected architecture
         """
 
         # Get image architecture using skopeo inspect
-        inspect_cmd = ['skopeo', 'inspect', '--no-tags', f'containers-storage:{image_name}']
-        result = run_cmd(inspect_cmd, {'timeout': 60}, f"inspect {image_name} failed")
+        inspect_cmd = ["skopeo", "inspect", "--no-tags", f"containers-storage:{image_name}"]
+        result = run_cmd(inspect_cmd, {"timeout": 60}, f"inspect {image_name} failed")
         image_data = json.loads(result)
 
         # Check architecture in image config
-        arch = image_data.get('Architecture')
+        arch = image_data.get("Architecture")
 
         if not arch:
             logger.warning(
                 'The "Architecture" was not found in image metadata. '
-                'Skipping the check that confirms if the architecture was set correctly.'
+                "Skipping the check that confirms if the architecture was set correctly."
             )
             return
 
@@ -508,8 +515,8 @@ class MultiArchBuilder:
         if arch != expected_arch_value:
             logger.warning("Wrong arch created for %s", image_name)
             raise ExternalServiceError(
-                f'Wrong arch created, for image {image_name} '
-                f'expected arch {expected_arch_value}, found {arch}'
+                f"Wrong arch created, for image {image_name} "
+                f"expected arch {expected_arch_value}, found {arch}"
             )
 
         logger.info(f"✓ Architecture verification passed for {image_name}: {arch}")
@@ -531,58 +538,59 @@ class MultiArchBuilder:
         :param list platform_images: list of platform-specific image names
         :raises IIBError: if creating or pushing the manifest list fails
         """
-        buildah_manifest_cmd = ['buildah', 'manifest']
+        buildah_manifest_cmd = ["buildah", "manifest"]
         image_name_repo, image_name_tag = self.config.image_name.split(":", 1)
         # Initialize _tags with the output image tag
         _tags = [image_name_tag]
         if self.config.commit_sha:
             _tags.append(self.config.commit_sha)
-        
+
         output_pull_specs = []
         for tag in _tags:
             output_pull_spec = f"{image_name_repo}:{tag}"
             output_pull_specs.append(output_pull_spec)
             try:
                 run_cmd(
-                    buildah_manifest_cmd + ['rm', output_pull_spec],
-                    exc_msg=f'Failed to remove local manifest list. {output_pull_spec} does not exist',
+                    buildah_manifest_cmd + ["rm", output_pull_spec],
+                    exc_msg=(
+                        f"Failed to remove local manifest list. {output_pull_spec} does not exist"
+                    ),
                 )
             except IIBError as e:
                 error_msg = str(e)
-                if 'Manifest list not found locally.' not in error_msg:
-                    raise IIBError(f'Error removing local manifest list: {error_msg}')
+                if "Manifest list not found locally." not in error_msg:
+                    raise IIBError(f"Error removing local manifest list: {error_msg}")
                 logger.debug(
-                    'Manifest list cannot be removed. No manifest list %s found', output_pull_spec
+                    "Manifest list cannot be removed. No manifest list %s found", output_pull_spec
                 )
-            logger.info('Creating the manifest list %s locally', output_pull_spec)
+            logger.info("Creating the manifest list %s locally", output_pull_spec)
             run_cmd(
-                buildah_manifest_cmd + ['create', output_pull_spec],
-                exc_msg=f'Failed to create the manifest list locally: {output_pull_spec}',
+                buildah_manifest_cmd + ["create", output_pull_spec],
+                exc_msg=f"Failed to create the manifest list locally: {output_pull_spec}",
             )
             for arch_image in platform_images:
                 run_cmd(
-                    buildah_manifest_cmd + ['add', output_pull_spec, arch_image],
+                    buildah_manifest_cmd + ["add", output_pull_spec, arch_image],
                     exc_msg=(
-                        f'Failed to add {arch_image} to the'
-                        f' local manifest list: {output_pull_spec}'
+                        f"Failed to add {arch_image} to the local manifest list: {output_pull_spec}"
                     ),
                 )
 
-            logger.debug('Pushing manifest list %s', output_pull_spec)
+            logger.debug("Pushing manifest list %s", output_pull_spec)
             run_cmd(
                 buildah_manifest_cmd
                 + [
-                    'push',
-                    '--all',
-                    '--format',
-                    'v2s2',
-                    '--tls-verify=true',
+                    "push",
+                    "--all",
+                    "--format",
+                    "v2s2",
+                    "--tls-verify=true",
                     output_pull_spec,
-                    f'docker://{output_pull_spec}',
+                    f"docker://{output_pull_spec}",
                 ],
-                exc_msg=f'Failed to push the manifest list to {output_pull_spec}',
+                exc_msg=f"Failed to push the manifest list to {output_pull_spec}",
             )
-    
+
     def build_all(self, ca_bundle_path: Optional[str] = None) -> Dict[str, Any]:
         """
         Build multi-arch image and return results.
@@ -594,24 +602,24 @@ class MultiArchBuilder:
         :raises RuntimeError: if Dockerfile validation fails
         """
         logger.info("Starting multi-architecture build")
-        
+
         # Validate Dockerfile exists
         if not self.validate_dockerfile():
             raise RuntimeError("Dockerfile validation failed")
-        
+
         # Update CA trust if bundle provided
         if ca_bundle_path:
             self._update_ca_trust(ca_bundle_path)
-        
+
         # Prepare system
         self._prepare_system()
-        
+
         # Generate cache using OPM
         logger.info("Generating cache using OPM")
         catalog_dir = Path(self.config.context_path) / "configs"
         if not catalog_dir.exists():
             raise IIBError(f"Catalog directory not found at {catalog_dir}")
-        
+
         logger.info(f"Found catalog directory at {catalog_dir}")
         generate_cache_locally(
             base_dir=self.config.context_path,
@@ -619,7 +627,7 @@ class MultiArchBuilder:
             local_cache_path=self.config.cache_dir,
             opm_version=self.config.opm_version,
         )
-        
+
         # Copy cache into build context so Dockerfile can access it
         logger.info("Copying cache into build context")
         context_cache_dir = Path(self.config.context_path) / "cache"
@@ -644,28 +652,28 @@ class MultiArchBuilder:
             except (IIBError, ExternalServiceError) as e:
                 logger.error(f"Failed to build for {platform}: {e}")
                 raise
-        
+
         # Create and push manifest
         logger.info("Creating and pushing multi-arch manifest")
-        
+
         # Create and push manifest list
         self._create_and_push_manifest_list(platform_images)
-        
+
         # Get manifest digest
-        inspect_cmd = ['skopeo', 'inspect', '--no-tags', f'docker://{self.config.image_name}']
-        result = run_cmd(inspect_cmd, {'timeout': 60}, "inspect manifest failed")
+        inspect_cmd = ["skopeo", "inspect", "--no-tags", f"docker://{self.config.image_name}"]
+        result = run_cmd(inspect_cmd, {"timeout": 60}, "inspect manifest failed")
         manifest_data = json.loads(result)
-        digest = manifest_data.get('Digest', '')
-        
-        results: Dict[str, Any] = {
-            'image_name': self.config.image_name,
-            'digest': digest,
-            'platforms': self.config.platforms,
-            'platform_images': platform_images,
-            'opm_version': self.config.opm_version,
+        digest = manifest_data.get("Digest", "")
+
+        results = {
+            "image_name": self.config.image_name,
+            "digest": digest,
+            "platforms": self.config.platforms,
+            "platform_images": platform_images,
+            "opm_version": self.config.opm_version,
         }
         if self.config.binary_image:
-            results['binary_image'] = self.config.binary_image
+            results["binary_image"] = self.config.binary_image
         return results
 
 
@@ -685,77 +693,60 @@ def load_config_from_env(metadata_file_path: Optional[str] = None) -> BuildConfi
     """
     # Source code is extracted to /var/workdir/source by the use-trusted-artifact step
     source_dir = "/var/workdir/source"
-    
+
     # If CONTEXT is relative, make it relative to source_dir
-    context_path = os.environ.get('CONTEXT', '.')
-    if not context_path.startswith('/'):
+    context_path = os.environ.get("CONTEXT", ".")
+    if not context_path.startswith("/"):
         context_path = os.path.join(source_dir, context_path)
-    
+
     # If DOCKERFILE is relative, make it relative to source_dir
-    dockerfile_path = os.environ.get('DOCKERFILE', './Dockerfile')
-    if not dockerfile_path.startswith('/'):
+    dockerfile_path = os.environ.get("DOCKERFILE", "./Dockerfile")
+    if not dockerfile_path.startswith("/"):
         dockerfile_path = os.path.join(source_dir, dockerfile_path)
 
     if metadata_file_path is None:
         metadata_file_path = (
-            os.environ.get('IIB_BUILD_METADATA_FILE_PATH')
-            or DEFAULT_IIB_BUILD_METADATA_FILE_PATH
+            os.environ.get("IIB_BUILD_METADATA_FILE_PATH") or DEFAULT_IIB_BUILD_METADATA_FILE_PATH
         )
     metadata_file_path = metadata_file_path.strip() or DEFAULT_IIB_BUILD_METADATA_FILE_PATH
-    logger.info('IIB build metadata file path: %s', metadata_file_path)
+    logger.info("IIB build metadata file path: %s", metadata_file_path)
 
     metadata_path = resolve_iib_build_metadata_path(context_path, metadata_file_path)
     metadata = load_iib_build_metadata(metadata_path)
 
     opm_version = opm_version_from_metadata(metadata)
     if opm_version is None:
-        raise IIBError(
-            f'opm_version is required in {metadata_path}'
-        )
-    logger.info(
-        'OPM version %s loaded from %s',
-        opm_version,
-        metadata_path,
-    )
+        raise IIBError(f"opm_version is required in {metadata_path}")
+    logger.info("OPM version %s loaded from %s", opm_version, metadata_path)
 
     labels = labels_from_metadata(metadata)
     if labels is None:
         labels = []
-    logger.info(
-        'Loaded %d label(s) from %s',
-        len(labels),
-        metadata_path,
-    )
+    logger.info("Loaded %d label(s) from %s", len(labels), metadata_path)
 
     platforms = arches_from_metadata(metadata)
     if platforms is None:
-        raise IIBError(
-            f'arches is required in {metadata_path}'
-        )
+        raise IIBError(f"arches is required in {metadata_path}")
     logger.info(
-        'Platforms %s loaded from %s (arches)',
-        ', '.join(platforms),
+        "Platforms %s loaded from %s (arches)",
+        ", ".join(platforms),
         metadata_path,
     )
 
-    binary_image = binary_image_from_metadata(metadata) or ''
+    binary_image = binary_image_from_metadata(metadata) or ""
     if binary_image:
-        logger.info(
-            'Binary image %s loaded from %s',
-            binary_image,
-            metadata_path,
-        )
+        logger.info("Binary image %s loaded from %s", binary_image, metadata_path)
     else:
-        logger.info('No binary_image configured in %s', metadata_path)
+        logger.info("No binary_image configured in %s", metadata_path)
 
     return BuildConfig(
-        image_name=os.environ.get('IMAGE', ''),
+        image_name=os.environ.get("IMAGE", ""),
         dockerfile_path=dockerfile_path,
         context_path=context_path,
         platforms=platforms,
         labels=labels,
-        cache_dir=os.environ.get('CACHE_DIR', '/var/workdir/cache'),
-        commit_sha=os.environ.get('COMMIT_SHA', ''),
+        cache_dir=os.environ.get("CACHE_DIR", "/var/workdir/cache"),
+        commit_sha=os.environ.get("COMMIT_SHA", ""),
         opm_version=opm_version,
         binary_image=binary_image,
     )
@@ -768,18 +759,18 @@ def main():
     Parses command line arguments, loads configuration from environment,
     and executes the build process.
     """
-    parser = argparse.ArgumentParser(description='Multi-architecture container builder')
-    parser.add_argument('--ca-bundle', help='Path to CA bundle file')
-    parser.add_argument('--output', help='Path to output results JSON file')
+    parser = argparse.ArgumentParser(description="Multi-architecture container builder")
+    parser.add_argument("--ca-bundle", help="Path to CA bundle file")
+    parser.add_argument("--output", help="Path to output results JSON file")
     parser.add_argument(
-        '--iib-build-metadata-file-path',
+        "--iib-build-metadata-file-path",
         default=os.environ.get(
-            'IIB_BUILD_METADATA_FILE_PATH',
+            "IIB_BUILD_METADATA_FILE_PATH",
             DEFAULT_IIB_BUILD_METADATA_FILE_PATH,
         ),
         help=(
-            'Path to IIB build metadata JSON file '
-            '(relative to CONTEXT unless absolute; default: .iib-build-metadata.json)'
+            "Path to IIB build metadata JSON file "
+            "(relative to CONTEXT unless absolute; default: .iib-build-metadata.json)"
         ),
     )
 
@@ -787,29 +778,29 @@ def main():
 
     try:
         config = load_config_from_env(metadata_file_path=args.iib_build_metadata_file_path)
-        
+
         # Validate required fields
         if not config.image_name or not config.commit_sha:
             raise ValueError("IMAGE name and COMMIT_SHA are required")
-        
+
         # Create builder and run build
         builder = MultiArchBuilder(config)
         results = builder.build_all(args.ca_bundle)
-        
+
         # Output results
         if args.output:
-            with open(args.output, 'w') as f:
+            with open(args.output, "w") as f:
                 json.dump(results, f, indent=2)
             logger.info(f"Results written to: {args.output}")
         else:
             print(json.dumps(results, indent=2))
-        
+
         logger.info("Multi-architecture build completed successfully")
-        
+
     except (IIBError, ExternalServiceError, RuntimeError, ValueError) as e:
         logger.error(f"Build failed: {e}")
         sys.exit(1)
 
 
-if __name__ == '__main__':
-    main() 
+if __name__ == "__main__":
+    main()

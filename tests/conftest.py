@@ -6,6 +6,7 @@ via the standard import mechanism. We load it with importlib at session
 start and register it as "multi_arch_builder" in sys.modules so that all
 test modules can simply ``import multi_arch_builder``.
 """
+
 import importlib.util
 import sys
 from pathlib import Path

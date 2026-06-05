@@ -5,16 +5,15 @@ The module is loaded via tests/conftest.py using importlib (because the
 filename contains a hyphen) and registered in sys.modules as
 ``multi_arch_builder``.
 """
+
 import json
 import os
 import subprocess
-from pathlib import Path
-from unittest.mock import MagicMock, mock_open, patch, call
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 import multi_arch_builder as mab
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -149,7 +148,7 @@ class TestRunCmd:
             returncode=1,
             stderr=(
                 '"permissive mode disabled" error="error deleting packages from'
-                " database: error removing operator package somepackage\""
+                ' database: error removing operator package somepackage"'
             ),
         )
         with pytest.raises(mab.IIBError, match="Error deleting packages from database"):
@@ -222,9 +221,7 @@ class TestGenerateCacheLocally:
         assert (cache_dir / "new.db").exists()
 
     @patch("multi_arch_builder.run_cmd")
-    def test_raises_iib_error_when_cache_directory_empty_after_run(
-        self, mock_run_cmd, tmp_path
-    ):
+    def test_raises_iib_error_when_cache_directory_empty_after_run(self, mock_run_cmd, tmp_path):
         cache_dir = tmp_path / "cache"
         cache_dir.mkdir()
         # run_cmd does nothing → cache dir remains empty
@@ -238,9 +235,7 @@ class TestGenerateCacheLocally:
             )
 
     @patch("multi_arch_builder.run_cmd")
-    def test_raises_iib_error_when_cache_directory_does_not_exist(
-        self, mock_run_cmd, tmp_path
-    ):
+    def test_raises_iib_error_when_cache_directory_does_not_exist(self, mock_run_cmd, tmp_path):
         non_existent = str(tmp_path / "no_such_cache")
 
         with pytest.raises(mab.IIBError, match="Cannot access cache directory"):
@@ -411,9 +406,7 @@ class TestVerifyImageArchitecture:
 class TestBuildImage:
     @patch("multi_arch_builder.MultiArchBuilder._verify_image_architecture")
     @patch("multi_arch_builder.run_cmd")
-    def test_executes_buildah_bud_with_correct_flags(
-        self, mock_run_cmd, mock_verify, builder
-    ):
+    def test_executes_buildah_bud_with_correct_flags(self, mock_run_cmd, mock_verify, builder):
         builder._build_image("amd64", "quay.io/org/img:latest-amd64")
         cmd = mock_run_cmd.call_args[0][0]
         assert cmd[0] == "buildah"
@@ -484,7 +477,6 @@ class TestCreateAndPushManifestList:
             "quay.io/org/img:latest-arm64",
         ]
         # First call (rm) raises IIBError("Manifest list not found locally.") → tolerated
-        run_cmd_calls = []
 
         def side_effect(cmd, *args, **kwargs):
             if "rm" in cmd:
@@ -512,7 +504,9 @@ class TestCreateAndPushManifestList:
             return ""
 
         mock_run_cmd.side_effect = side_effect
-        builder._create_and_push_manifest_list.__wrapped__(builder, ["quay.io/org/img:latest-amd64"])
+        builder._create_and_push_manifest_list.__wrapped__(
+            builder, ["quay.io/org/img:latest-amd64"]
+        )
         assert rm_attempted
 
     @patch("multi_arch_builder.run_cmd")
@@ -527,7 +521,9 @@ class TestCreateAndPushManifestList:
 
         mock_run_cmd.side_effect = side_effect
         with pytest.raises(mab.IIBError, match="Error removing local manifest list"):
-            builder._create_and_push_manifest_list.__wrapped__(builder, ["quay.io/org/img:latest-amd64"])
+            builder._create_and_push_manifest_list.__wrapped__(
+                builder, ["quay.io/org/img:latest-amd64"]
+            )
 
     @patch("multi_arch_builder.run_cmd")
     def test_push_uses_docker_scheme_and_all_flag(self, mock_run_cmd, builder):
@@ -776,9 +772,7 @@ class TestMain:
     @patch("multi_arch_builder.MultiArchBuilder.build_all")
     @patch("multi_arch_builder.load_config_from_env")
     @patch("sys.argv", ["multi-arch-builder.py"])
-    def test_exits_with_code_1_when_image_name_missing(
-        self, mock_load_config, mock_build_all
-    ):
+    def test_exits_with_code_1_when_image_name_missing(self, mock_load_config, mock_build_all):
         mock_load_config.return_value = mab.BuildConfig(
             image_name="",  # missing
             dockerfile_path="/Dockerfile",
@@ -797,9 +791,7 @@ class TestMain:
     @patch("multi_arch_builder.MultiArchBuilder.build_all")
     @patch("multi_arch_builder.load_config_from_env")
     @patch("sys.argv", ["multi-arch-builder.py"])
-    def test_exits_with_code_1_when_commit_sha_missing(
-        self, mock_load_config, mock_build_all
-    ):
+    def test_exits_with_code_1_when_commit_sha_missing(self, mock_load_config, mock_build_all):
         mock_load_config.return_value = mab.BuildConfig(
             image_name="quay.io/org/img:latest",
             dockerfile_path="/Dockerfile",
@@ -864,7 +856,10 @@ class TestMain:
         data = json.loads(output_file.read_text())
         assert data["image_name"] == "quay.io/org/img:latest"
 
-    @patch("multi_arch_builder.MultiArchBuilder.build_all", side_effect=mab.IIBError("boom"))
+    @patch(
+        "multi_arch_builder.MultiArchBuilder.build_all",
+        side_effect=mab.IIBError("boom"),
+    )
     @patch("multi_arch_builder.load_config_from_env")
     @patch("sys.argv", ["multi-arch-builder.py"])
     def test_exits_with_code_1_on_iib_error(self, mock_load_config, mock_build_all):
