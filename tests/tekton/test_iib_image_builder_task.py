@@ -4,6 +4,7 @@ Tests for the iib-image-builder-oci-ta Tekton task definition.
 These tests validate the structure, parameters, results, volumes, and step
 configuration of the YAML without requiring a live Kubernetes/Tekton cluster.
 """
+
 from pathlib import Path
 
 import pytest
@@ -126,8 +127,7 @@ class TestTaskParameters:
 
     def test_iib_build_metadata_file_path_default(self, params_by_name):
         assert (
-            params_by_name["IIB_BUILD_METADATA_FILE_PATH"]["default"]
-            == ".iib-build-metadata.json"
+            params_by_name["IIB_BUILD_METADATA_FILE_PATH"]["default"] == ".iib-build-metadata.json"
         )
 
     def test_image_param_is_string_type(self, params_by_name):
@@ -217,12 +217,7 @@ class TestStepTemplate:
     def test_step_template_propagates_required_env_vars(self, spec):
         step_template = spec.get("stepTemplate", {})
         env_names = {e["name"] for e in step_template.get("env", [])}
-        for required in (
-            "IMAGE",
-            "COMMIT_SHA",
-            "IIB_BUILD_METADATA_FILE_PATH",
-            "CACHE_DIR",
-        ):
+        for required in ("IMAGE", "COMMIT_SHA", "IIB_BUILD_METADATA_FILE_PATH", "CACHE_DIR"):
             assert required in env_names, f"stepTemplate must expose env var '{required}'"
 
     def test_step_template_mounts_shared_and_workdir_volumes(self, spec):

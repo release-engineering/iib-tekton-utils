@@ -22,5 +22,10 @@ test = [
 testpaths = ["tests"]
 addopts = "-v --tb=short"
 
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = [".git", ".idea", ".tox", ".venv", "__pycache__"]
+
 [tool.setuptools.packages.find]
 where = ["."]

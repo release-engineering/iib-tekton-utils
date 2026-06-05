@@ -20,6 +20,7 @@ Builds container images for OLM file-based catalogs across multiple architecture
 - `task/iib-image-builder-oci-ta/multi-arch-builder.py` - Python build orchestrator
 - `Containerfile.iib-build-task` - Container image for the build task
 - `pyproject.toml` - Project config and test dependencies
+- `tox.ini` - Test and lint orchestration (pytest, ruff, yamllint)
 
 ## Directory Structure
 
@@ -38,7 +39,17 @@ tests/
 # Install test dependencies
 pip install ".[test]"
 
-# Run all tests
+# Run all checks (tests, ruff, yamllint) — same as CI
+pip install tox && tox
+
+# Run individual tox environments
+tox -e unit          # unit tests
+tox -e tekton        # Tekton YAML validation tests
+tox -e ruff          # Python lint
+tox -e ruff-format   # Python format check
+tox -e yamllint      # YAML lint
+
+# Run all tests (without tox)
 pytest
 
 # Run unit tests only
@@ -63,14 +74,14 @@ pip install pre-commit && pre-commit install
 ## Pattern References
 
 - **Adding a new Tekton parameter**: Follow pattern in `task/iib-image-builder-oci-ta/iib-image-builder-oci-ta.yaml:17-58`
-- **Adding retry logic**: See `_build_image()` at multi-arch-builder.py:271 for tenacity decorator pattern
+- **Adding retry logic**: See `_build_image()` at multi-arch-builder.py:427 for tenacity decorator pattern
 - **Adding a new test class**: Follow `TestRunCmd` pattern in tests/unit/test_multi_arch_builder.py:66
 
 ## Architecture Notes
 
-- `MultiArchBuilder` class in multi-arch-builder.py:201 orchestrates the build
-- `generate_cache_locally()` at :144 runs OPM to create FBC cache
-- Retry logic via tenacity for buildah operations (:271, :365)
+- `MultiArchBuilder` class in multi-arch-builder.py:353 orchestrates the build
+- `generate_cache_locally()` at :295 runs OPM to create FBC cache
+- Retry logic via tenacity for buildah operations (:427, :524)
 - Exception hierarchy: `IIBBaseException` > `IIBError`, `ExternalServiceError`
 - Tests use `conftest.py` to load hyphenated `multi-arch-builder.py` via importlib
 
