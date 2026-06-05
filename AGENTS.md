@@ -47,9 +47,24 @@ pytest tests/unit/
 # Run Tekton task validation tests only
 pytest tests/tekton/
 
+# Single-file lint (fast feedback)
+ruff check task/iib-image-builder-oci-ta/multi-arch-builder.py
+
+# Single-file type check
+mypy task/iib-image-builder-oci-ta/multi-arch-builder.py
+
 # Build container image
 buildah build -f Containerfile.iib-build-task -t iib-build-task:latest .
+
+# Setup pre-commit hooks
+pip install pre-commit && pre-commit install
 ```
+
+## Pattern References
+
+- **Adding a new Tekton parameter**: Follow pattern in `task/iib-image-builder-oci-ta/iib-image-builder-oci-ta.yaml:17-58`
+- **Adding retry logic**: See `_build_image()` at multi-arch-builder.py:271 for tenacity decorator pattern
+- **Adding a new test class**: Follow `TestRunCmd` pattern in tests/unit/test_multi_arch_builder.py:66
 
 ## Architecture Notes
 
