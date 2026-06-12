@@ -167,8 +167,12 @@ class TestRunCmd:
 
 
 class TestGenerateCacheLocally:
+    @patch(
+        "multi_arch_builder.resolve_opm_binary_path",
+        return_value="/usr/bin/opm-v1.40.0",
+    )
     @patch("multi_arch_builder.run_cmd")
-    def test_runs_opm_command_with_correct_args(self, mock_run_cmd, tmp_path):
+    def test_runs_opm_command_with_correct_args(self, mock_run_cmd, mock_resolve, tmp_path):
         fbc_dir = tmp_path / "fbc"
         fbc_dir.mkdir()
         cache_dir = tmp_path / "cache"
@@ -194,8 +198,14 @@ class TestGenerateCacheLocally:
         assert "--cache-only" in cmd_arg
         assert f"--cache-dir={cache_dir}" in cmd_arg
 
+    @patch(
+        "multi_arch_builder.resolve_opm_binary_path",
+        return_value="/usr/bin/opm-v1.40.0",
+    )
     @patch("multi_arch_builder.run_cmd")
-    def test_cleans_existing_cache_directory_before_running(self, mock_run_cmd, tmp_path):
+    def test_cleans_existing_cache_directory_before_running(
+        self, mock_run_cmd, mock_resolve, tmp_path
+    ):
         cache_dir = tmp_path / "cache"
         cache_dir.mkdir()
         stale_file = cache_dir / "stale.txt"
@@ -220,8 +230,14 @@ class TestGenerateCacheLocally:
         assert not stale_subdir.exists()
         assert (cache_dir / "new.db").exists()
 
+    @patch(
+        "multi_arch_builder.resolve_opm_binary_path",
+        return_value="/usr/bin/opm-v1.40.0",
+    )
     @patch("multi_arch_builder.run_cmd")
-    def test_raises_iib_error_when_cache_directory_empty_after_run(self, mock_run_cmd, tmp_path):
+    def test_raises_iib_error_when_cache_directory_empty_after_run(
+        self, mock_run_cmd, mock_resolve, tmp_path
+    ):
         cache_dir = tmp_path / "cache"
         cache_dir.mkdir()
         # run_cmd does nothing → cache dir remains empty
@@ -234,8 +250,14 @@ class TestGenerateCacheLocally:
                 opm_version="v1.40.0",
             )
 
+    @patch(
+        "multi_arch_builder.resolve_opm_binary_path",
+        return_value="/usr/bin/opm-v1.40.0",
+    )
     @patch("multi_arch_builder.run_cmd")
-    def test_raises_iib_error_when_cache_directory_does_not_exist(self, mock_run_cmd, tmp_path):
+    def test_raises_iib_error_when_cache_directory_does_not_exist(
+        self, mock_run_cmd, mock_resolve, tmp_path
+    ):
         non_existent = str(tmp_path / "no_such_cache")
 
         with pytest.raises(mab.IIBError, match="Cannot access cache directory"):
@@ -246,8 +268,12 @@ class TestGenerateCacheLocally:
                 opm_version="v1.40.0",
             )
 
+    @patch(
+        "multi_arch_builder.resolve_opm_binary_path",
+        return_value="/usr/bin/opm-v1.99.0",
+    )
     @patch("multi_arch_builder.run_cmd")
-    def test_uses_opm_version_argument(self, mock_run_cmd, tmp_path):
+    def test_uses_opm_version_argument(self, mock_run_cmd, mock_resolve, tmp_path):
         cache_dir = tmp_path / "cache"
         cache_dir.mkdir()
 
@@ -597,8 +623,31 @@ class TestOpmVersionFromMetadata:
     def test_returns_version_without_prefix(self):
         assert mab.opm_version_from_metadata({"opm_version": "v1.40.0"}) == "v1.40.0"
 
+    def test_maps_bare_opm_to_default(self):
+        assert mab.opm_version_from_metadata({"opm_version": "opm"}) == mab.DEFAULT_OPM_VERSION
+
+    def test_raises_when_opm_version_empty(self):
+        with pytest.raises(mab.IIBError, match="must not be empty"):
+            mab.opm_version_from_metadata({"opm_version": ""})
+
+    def test_raises_when_opm_version_whitespace_only(self):
+        with pytest.raises(mab.IIBError, match="must not be empty"):
+            mab.opm_version_from_metadata({"opm_version": "   "})
+
     def test_returns_none_when_missing(self):
         assert mab.opm_version_from_metadata({}) is None
+
+
+class TestResolveOpmBinaryPath:
+    @patch.object(mab.Path, "is_file", return_value=True)
+    def test_returns_path_when_binary_exists(self, mock_is_file):
+        assert mab.resolve_opm_binary_path("v1.48.0") == "/usr/bin/opm-v1.48.0"
+        mock_is_file.assert_called_once()
+
+    @patch.object(mab.Path, "is_file", return_value=False)
+    def test_raises_when_binary_missing(self, mock_is_file):
+        with pytest.raises(mab.IIBError, match="OPM binary not found"):
+            mab.resolve_opm_binary_path("v9.99.9")
 
 
 class TestLabelsFromMetadata:
@@ -746,6 +795,20 @@ class TestLoadConfigFromEnv:
         monkeypatch.setenv("CONTEXT", str(context))
 
         with pytest.raises(mab.IIBError, match="opm_version is required"):
+            mab.load_config_from_env()
+
+    def test_raises_when_opm_version_empty(self, tmp_path, monkeypatch):
+        context = tmp_path / "ctx"
+        context.mkdir()
+        (context / ".iib-build-metadata.json").write_text(
+            json.dumps({"opm_version": "", "arches": ["amd64"]}),
+            encoding="utf-8",
+        )
+        monkeypatch.setenv("IMAGE", "quay.io/org/img:latest")
+        monkeypatch.setenv("COMMIT_SHA", "sha123")
+        monkeypatch.setenv("CONTEXT", str(context))
+
+        with pytest.raises(mab.IIBError, match="must not be empty"):
             mab.load_config_from_env()
 
     def test_raises_when_arches_missing(self, tmp_path, monkeypatch):

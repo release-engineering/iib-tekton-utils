@@ -36,7 +36,7 @@ Place a JSON file in the build context (default: `.iib-build-metadata.json`). Re
 
 | Field | Required | Description |
 |---|---|---|
-| `opm_version` | yes | OPM version for cache generation (e.g. `v1.48.0` or `opm-v1.48.0`) |
+| `opm_version` | yes | OPM version for cache generation. Accepts `v1.48.0`, `opm-v1.48.0`, or IIB's default `opm` (see [opm_version normalization](#opm_version-normalization) below). Must not be empty. |
 | `arches` | yes | Target architectures, e.g. `["amd64", "arm64", "ppc64le", "s390x"]` |
 | `labels` | no | Object of label key/value pairs applied to built images |
 | `binary_image` | no | Passed to the Dockerfile as `BINARY_IMAGE` build arg |
@@ -56,6 +56,20 @@ Example:
 ```
 
 Supported OPM versions are bundled in the task image: `v1.26.4`, `v1.40.0`, `v1.44.0`, and `v1.48.0`.
+
+### opm_version normalization
+
+The builder resolves `opm_version` from metadata as follows:
+
+| Metadata value | Result |
+|---|---|
+| Key missing | Build fails: `opm_version is required` |
+| `""` or whitespace only | Build fails: `value must not be empty` |
+| `"opm"` (IIB `iib_default_opm`) | Uses latest bundled version (`v1.48.0`) with a warning in the log |
+| `"opm-v1.48.0"` | Strips the `opm-` prefix → `v1.48.0` |
+| `"v1.48.0"` | Used as-is |
+
+IIB often writes `"opm"` when no OCP-to-OPM mapping is configured. The task image has no unversioned `opm` binary in `PATH`; only versioned binaries under `/usr/bin/opm-<version>` are available. Prefer an explicit version in metadata when you know which OPM release the index requires.
 
 ## Parameters
 
