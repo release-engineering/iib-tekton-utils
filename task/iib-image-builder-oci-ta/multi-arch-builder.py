@@ -31,9 +31,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-DEFAULT_IIB_BUILD_METADATA_FILE_PATH = '.iib-build-metadata.json'
+DEFAULT_IIB_BUILD_METADATA_FILE_PATH = ".iib-build-metadata.json"
 # OPM binaries bundled in Containerfile.iib-build-task (keep in sync).
-BUNDLED_OPM_VERSIONS = ('v1.26.4', 'v1.40.0', 'v1.44.0', 'v1.48.0')
+BUNDLED_OPM_VERSIONS = ("v1.26.4", "v1.40.0", "v1.44.0", "v1.48.0")
 DEFAULT_OPM_VERSION = BUNDLED_OPM_VERSIONS[-1]
 
 
@@ -218,24 +218,21 @@ def opm_version_from_metadata(metadata: Dict[str, Any]) -> Optional[str]:
 
     version = str(raw_version).strip()
     if not version:
-        raise IIBError(
-            'Invalid opm_version in IIB build metadata file: '
-            'value must not be empty'
-        )
+        raise IIBError("Invalid opm_version in IIB build metadata file: value must not be empty")
 
-    if version.startswith('opm-'):
-        version = version.removeprefix('opm-')
+    if version.startswith("opm-"):
+        version = version.removeprefix("opm-")
 
     if not version:
         raise IIBError(
-            'Invalid opm_version in IIB build metadata file: '
-            f'no version after stripping opm- prefix from {raw_version!r}'
+            "Invalid opm_version in IIB build metadata file: "
+            f"no version after stripping opm- prefix from {raw_version!r}"
         )
 
     # IIB may write the default command name without a version suffix.
-    if version == 'opm':
+    if version == "opm":
         logger.warning(
-            'opm_version in metadata is %r (IIB default); using bundled OPM %s',
+            "opm_version in metadata is %r (IIB default); using bundled OPM %s",
             raw_version,
             DEFAULT_OPM_VERSION,
         )
@@ -253,15 +250,15 @@ def resolve_opm_binary_path(opm_version: str) -> str:
     :rtype: str
     :raises IIBError: if the requested version is not bundled in the task image
     """
-    opm_binary = Path(f'/usr/bin/opm-{opm_version}')
+    opm_binary = Path(f"/usr/bin/opm-{opm_version}")
     if opm_binary.is_file():
         return str(opm_binary)
 
-    supported = ', '.join(BUNDLED_OPM_VERSIONS)
+    supported = ", ".join(BUNDLED_OPM_VERSIONS)
     raise IIBError(
-        f'OPM binary not found at {opm_binary}. '
-        f'Supported opm_version values: {supported} or opm-<version> '
-        f'(e.g. opm-v1.48.0). Got opm_version={opm_version!r}.'
+        f"OPM binary not found at {opm_binary}. "
+        f"Supported opm_version values: {supported} or opm-<version> "
+        f"(e.g. opm-v1.48.0). Got opm_version={opm_version!r}."
     )
 
 
@@ -764,14 +761,12 @@ def load_config_from_env(metadata_file_path: Optional[str] = None) -> BuildConfi
     metadata_path = resolve_iib_build_metadata_path(context_path, metadata_file_path)
     metadata = load_iib_build_metadata(metadata_path)
 
-    raw_opm_version = metadata.get('opm_version')
+    raw_opm_version = metadata.get("opm_version")
     opm_version = opm_version_from_metadata(metadata)
     if opm_version is None:
-        raise IIBError(
-            f'opm_version is required in {metadata_path}'
-        )
+        raise IIBError(f"opm_version is required in {metadata_path}")
     logger.info(
-        'OPM version %s loaded from %s (raw: %r)',
+        "OPM version %s loaded from %s (raw: %r)",
         opm_version,
         metadata_path,
         raw_opm_version,
