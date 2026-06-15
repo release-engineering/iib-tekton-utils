@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_IIB_BUILD_METADATA_FILE_PATH = ".iib-build-metadata.json"
 # OPM binaries bundled in Containerfile.iib-build-task (keep in sync).
-BUNDLED_OPM_VERSIONS = ("v1.26.4", "v1.40.0", "v1.44.0", "v1.48.0")
+BUNDLED_OPM_VERSIONS = ("v1.26.4", "v1.28.0", "v1.40.0", "v1.44.0", "v1.48.0")
 DEFAULT_OPM_VERSION = BUNDLED_OPM_VERSIONS[-1]
 
 
