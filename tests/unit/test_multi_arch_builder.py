@@ -488,6 +488,106 @@ class TestBuildImage:
 
 
 # ---------------------------------------------------------------------------
+# MultiArchBuilder.build_all – catalog dir permission normalization
+# ---------------------------------------------------------------------------
+
+
+class TestBuildAllNormalizesConfigsPermissions:
+    """Dockerfile COPY normalises permissions: root dirs become 0755.
+
+    opm includes file and directory modes in its cache digest, so every
+    entry under ``configs/`` must be normalised before cache generation
+    to match what the runtime image will see after COPY.
+    """
+
+    @patch("multi_arch_builder.MultiArchBuilder._create_and_push_manifest_list")
+    @patch("multi_arch_builder.MultiArchBuilder._build_image")
+    @patch("multi_arch_builder.generate_cache_locally")
+    @patch("multi_arch_builder.MultiArchBuilder._prepare_system")
+    @patch("multi_arch_builder.run_cmd")
+    def test_catalog_tree_normalised_before_cache_generation(
+        self,
+        mock_run_cmd,
+        mock_prepare,
+        mock_gen_cache,
+        mock_build,
+        mock_manifest,
+        tmp_path,
+    ):
+        context = tmp_path / "ctx"
+        context.mkdir()
+        catalog = context / "configs"
+        catalog.mkdir(mode=0o775)
+        subdir = catalog / "operator-a"
+        subdir.mkdir(mode=0o775)
+        gitkeep = catalog / ".gitkeep"
+        gitkeep.touch()
+        gitkeep.chmod(0o664)
+        catalog_json = subdir / "catalog.json"
+        catalog_json.write_text("{}")
+        catalog_json.chmod(0o664)
+
+        # Simulate OpenShift emptyDir with setgid (mode 2777)
+        cache_dir = tmp_path / "cache"
+        cache_dir.mkdir(mode=0o2777)
+
+        dockerfile = context / "Dockerfile"
+        dockerfile.write_text("FROM scratch\n")
+
+        cfg = mab.BuildConfig(
+            image_name="quay.io/org/img:latest",
+            dockerfile_path=str(dockerfile),
+            context_path=str(context),
+            platforms=["amd64"],
+            labels=[],
+            cache_dir=str(cache_dir),
+            commit_sha="abc123",
+            opm_version="v1.40.0",
+        )
+        builder = mab.MultiArchBuilder(cfg)
+
+        observed = {}
+
+        def capture_modes(*args, **kwargs):
+            observed["catalog_dir"] = catalog.stat().st_mode & 0o7777
+            observed["subdir"] = subdir.stat().st_mode & 0o7777
+            observed["gitkeep"] = gitkeep.stat().st_mode & 0o7777
+            observed["catalog_json"] = catalog_json.stat().st_mode & 0o7777
+            observed["cache_dir"] = cache_dir.stat().st_mode & 0o7777
+            current_umask = os.umask(0)
+            os.umask(current_umask)
+            observed["umask"] = current_umask
+            (cache_dir / "cache").mkdir(exist_ok=True)
+            (cache_dir / "cache" / "packages.json").write_text("{}")
+            (cache_dir / "digest").write_text("abc")
+
+        mock_gen_cache.side_effect = capture_modes
+        mock_run_cmd.return_value = '{"Digest": "sha256:abc"}'
+
+        umask_before = os.umask(0o022)
+        os.umask(umask_before)
+
+        builder.build_all()
+
+        umask_after = os.umask(0o022)
+        os.umask(umask_after)
+        assert umask_after == umask_before, (
+            f"umask not restored after build_all(): was {umask_before:04o}, now {umask_after:04o}"
+        )
+
+        assert observed["catalog_dir"] == 0o755
+        assert observed["subdir"] == 0o755
+        assert observed["gitkeep"] == 0o644
+        assert observed["catalog_json"] == 0o644
+        assert observed["cache_dir"] == 0o755, (
+            f"cache_dir should be 0755 (setgid stripped), got {observed['cache_dir']:04o}"
+        )
+        assert observed["umask"] == 0o022, (
+            f"umask should be 0022 during cache generation, got {observed['umask']:04o}"
+        )
+
+
+# ---------------------------------------------------------------------------
 # MultiArchBuilder._create_and_push_manifest_list
 # ---------------------------------------------------------------------------
 

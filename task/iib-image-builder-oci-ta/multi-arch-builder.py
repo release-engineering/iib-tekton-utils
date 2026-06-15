@@ -668,12 +668,40 @@ class MultiArchBuilder:
             raise IIBError(f"Catalog directory not found at {catalog_dir}")
 
         logger.info(f"Found catalog directory at {catalog_dir}")
-        generate_cache_locally(
-            base_dir=self.config.context_path,
-            fbc_dir=str(catalog_dir),
-            local_cache_path=self.config.cache_dir,
-            opm_version=self.config.opm_version,
-        )
+
+        logger.debug("Normalising permissions under %s", catalog_dir)
+        # Dockerfile COPY normalizes the root destination directory to mode 0755
+        # regardless of the source mode.  opm includes directory modes in its
+        # cache digest, so the modes at generation time must match what will
+        # appear in the final image after COPY — otherwise the runtime integrity
+        # check fails.  Normalise every directory to 0755 and every file to 0644
+        # so the digest is stable regardless of the source umask.
+        for dirpath, _dirnames, filenames in os.walk(str(catalog_dir)):
+            os.chmod(dirpath, 0o755)
+            for fname in filenames:
+                os.chmod(os.path.join(dirpath, fname), 0o644)
+
+        # OpenShift emptyDir volumes carry the setgid bit (mode 2777) and pods
+        # often run with a restrictive umask (e.g. 0027), so opm creates cache
+        # entries with non-standard modes (2750 dirs, 0640 files).  Dockerfile
+        # COPY then normalises the root to 0755, making the runtime digest
+        # diverge from the stored one.  Strip setgid from the cache mount and
+        # force umask 0022 so opm writes standard 0755/0644 entries whose
+        # digest survives COPY.
+        cache_path = Path(self.config.cache_dir)
+        if cache_path.exists():
+            os.chmod(str(cache_path), 0o755)
+        old_umask = os.umask(0o022)
+
+        try:
+            generate_cache_locally(
+                base_dir=self.config.context_path,
+                fbc_dir=str(catalog_dir),
+                local_cache_path=self.config.cache_dir,
+                opm_version=self.config.opm_version,
+            )
+        finally:
+            os.umask(old_umask)
 
         # Copy cache into build context so Dockerfile can access it
         logger.info("Copying cache into build context")
