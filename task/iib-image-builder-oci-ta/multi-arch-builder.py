@@ -145,6 +145,7 @@ class BuildConfig:
     commit_sha: str
     opm_version: str
     binary_image: str = ""
+    skip_opm_cache: bool = False
     # Architecture mapping for platform names to expected architecture values
     arch_map: Dict[str, str] = field(
         default_factory=lambda: {
@@ -661,59 +662,62 @@ class MultiArchBuilder:
         # Prepare system
         self._prepare_system()
 
-        # Generate cache using OPM
-        logger.info("Generating cache using OPM")
-        catalog_dir = Path(self.config.context_path) / "configs"
-        if not catalog_dir.exists():
-            raise IIBError(f"Catalog directory not found at {catalog_dir}")
+        if self.config.skip_opm_cache:
+            logger.info("Skipping OPM cache generation (regenerate-bundle request)")
+        else:
+            # Generate cache using OPM
+            logger.info("Generating cache using OPM")
+            catalog_dir = Path(self.config.context_path) / "configs"
+            if not catalog_dir.exists():
+                raise IIBError(f"Catalog directory not found at {catalog_dir}")
 
-        logger.info(f"Found catalog directory at {catalog_dir}")
+            logger.info(f"Found catalog directory at {catalog_dir}")
 
-        logger.debug("Normalising permissions under %s", catalog_dir)
-        # Dockerfile COPY normalizes the root destination directory to mode 0755
-        # regardless of the source mode.  opm includes directory modes in its
-        # cache digest, so the modes at generation time must match what will
-        # appear in the final image after COPY — otherwise the runtime integrity
-        # check fails.  Normalise every directory to 0755 and every file to 0644
-        # so the digest is stable regardless of the source umask.
-        for dirpath, _dirnames, filenames in os.walk(str(catalog_dir)):
-            os.chmod(dirpath, 0o755)
-            for fname in filenames:
-                os.chmod(os.path.join(dirpath, fname), 0o644)
+            logger.debug("Normalising permissions under %s", catalog_dir)
+            # Dockerfile COPY normalizes the root destination directory to mode 0755
+            # regardless of the source mode.  opm includes directory modes in its
+            # cache digest, so the modes at generation time must match what will
+            # appear in the final image after COPY — otherwise the runtime integrity
+            # check fails.  Normalise every directory to 0755 and every file to 0644
+            # so the digest is stable regardless of the source umask.
+            for dirpath, _dirnames, filenames in os.walk(str(catalog_dir)):
+                os.chmod(dirpath, 0o755)
+                for fname in filenames:
+                    os.chmod(os.path.join(dirpath, fname), 0o644)
 
-        # OpenShift emptyDir volumes carry the setgid bit (mode 2777) and pods
-        # often run with a restrictive umask (e.g. 0027), so opm creates cache
-        # entries with non-standard modes (2750 dirs, 0640 files).  Dockerfile
-        # COPY then normalises the root to 0755, making the runtime digest
-        # diverge from the stored one.  Strip setgid from the cache mount and
-        # force umask 0022 so opm writes standard 0755/0644 entries whose
-        # digest survives COPY.
-        cache_path = Path(self.config.cache_dir)
-        if cache_path.exists():
-            os.chmod(str(cache_path), 0o755)
-        old_umask = os.umask(0o022)
+            # OpenShift emptyDir volumes carry the setgid bit (mode 2777) and pods
+            # often run with a restrictive umask (e.g. 0027), so opm creates cache
+            # entries with non-standard modes (2750 dirs, 0640 files).  Dockerfile
+            # COPY then normalises the root to 0755, making the runtime digest
+            # diverge from the stored one.  Strip setgid from the cache mount and
+            # force umask 0022 so opm writes standard 0755/0644 entries whose
+            # digest survives COPY.
+            cache_path = Path(self.config.cache_dir)
+            if cache_path.exists():
+                os.chmod(str(cache_path), 0o755)
+            old_umask = os.umask(0o022)
 
-        try:
-            generate_cache_locally(
-                base_dir=self.config.context_path,
-                fbc_dir=str(catalog_dir),
-                local_cache_path=self.config.cache_dir,
-                opm_version=self.config.opm_version,
-            )
-        finally:
-            os.umask(old_umask)
+            try:
+                generate_cache_locally(
+                    base_dir=self.config.context_path,
+                    fbc_dir=str(catalog_dir),
+                    local_cache_path=self.config.cache_dir,
+                    opm_version=self.config.opm_version,
+                )
+            finally:
+                os.umask(old_umask)
 
-        # Copy cache into build context so Dockerfile can access it
-        logger.info("Copying cache into build context")
-        context_cache_dir = Path(self.config.context_path) / "cache"
-        try:
-            if context_cache_dir.exists():
-                shutil.rmtree(context_cache_dir)
-            shutil.copytree(self.config.cache_dir, context_cache_dir)
-            logger.info(f"✓ Cache copied to {context_cache_dir}")
-        except (OSError, IOError) as e:
-            logger.error(f"Failed to copy cache to build context: {e}")
-            raise IIBError(f"Failed to copy cache to build context: {e}")
+            # Copy cache into build context so Dockerfile can access it
+            logger.info("Copying cache into build context")
+            context_cache_dir = Path(self.config.context_path) / "cache"
+            try:
+                if context_cache_dir.exists():
+                    shutil.rmtree(context_cache_dir)
+                shutil.copytree(self.config.cache_dir, context_cache_dir)
+                logger.info(f"✓ Cache copied to {context_cache_dir}")
+            except (OSError, IOError) as e:
+                logger.error(f"Failed to copy cache to build context: {e}")
+                raise IIBError(f"Failed to copy cache to build context: {e}")
 
         # Build images for each platform
         platform_images = []
@@ -789,16 +793,21 @@ def load_config_from_env(metadata_file_path: Optional[str] = None) -> BuildConfi
     metadata_path = resolve_iib_build_metadata_path(context_path, metadata_file_path)
     metadata = load_iib_build_metadata(metadata_path)
 
+    is_regenerate_bundle = "package_name" in metadata
+    if is_regenerate_bundle:
+        logger.info("Detected regenerate-bundle request (package_name present in metadata)")
+
     raw_opm_version = metadata.get("opm_version")
     opm_version = opm_version_from_metadata(metadata)
-    if opm_version is None:
+    if opm_version is None and not is_regenerate_bundle:
         raise IIBError(f"opm_version is required in {metadata_path}")
-    logger.info(
-        "OPM version %s loaded from %s (raw: %r)",
-        opm_version,
-        metadata_path,
-        raw_opm_version,
-    )
+    if opm_version:
+        logger.info(
+            "OPM version %s loaded from %s (raw: %r)",
+            opm_version,
+            metadata_path,
+            raw_opm_version,
+        )
 
     labels = labels_from_metadata(metadata)
     if labels is None:
@@ -828,8 +837,9 @@ def load_config_from_env(metadata_file_path: Optional[str] = None) -> BuildConfi
         labels=labels,
         cache_dir=os.environ.get("CACHE_DIR", "/var/workdir/cache"),
         commit_sha=os.environ.get("COMMIT_SHA", ""),
-        opm_version=opm_version,
+        opm_version=opm_version or "",
         binary_image=binary_image,
+        skip_opm_cache=is_regenerate_bundle,
     )
 
 
