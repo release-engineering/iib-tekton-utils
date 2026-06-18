@@ -317,6 +317,19 @@ class TestBuildConfig:
             "s390x": "s390x",
         }
 
+    def test_skip_opm_cache_defaults_to_false(self):
+        cfg = mab.BuildConfig(
+            image_name="img:tag",
+            dockerfile_path="/Dockerfile",
+            context_path="/ctx",
+            platforms=["amd64"],
+            labels=[],
+            cache_dir="/cache",
+            commit_sha="sha",
+            opm_version="v1.40.0",
+        )
+        assert cfg.skip_opm_cache is False
+
     def test_custom_arch_map(self):
         custom_map = {"amd64": "x86_64"}
         cfg = mab.BuildConfig(
@@ -585,6 +598,134 @@ class TestBuildAllNormalizesConfigsPermissions:
         assert observed["umask"] == 0o022, (
             f"umask should be 0022 during cache generation, got {observed['umask']:04o}"
         )
+
+
+# ---------------------------------------------------------------------------
+# MultiArchBuilder.build_all – skip OPM cache for regenerate-bundle
+# ---------------------------------------------------------------------------
+
+
+class TestBuildAllSkipsOpmCacheForRegenerateBundle:
+    @patch("multi_arch_builder.MultiArchBuilder._create_and_push_manifest_list")
+    @patch("multi_arch_builder.MultiArchBuilder._build_image")
+    @patch("multi_arch_builder.generate_cache_locally")
+    @patch("multi_arch_builder.MultiArchBuilder._prepare_system")
+    @patch("multi_arch_builder.run_cmd")
+    def test_skips_cache_generation_when_skip_opm_cache_is_true(
+        self,
+        mock_run_cmd,
+        mock_prepare,
+        mock_gen_cache,
+        mock_build,
+        mock_manifest,
+        tmp_path,
+    ):
+        context = tmp_path / "ctx"
+        context.mkdir()
+        dockerfile = context / "Dockerfile"
+        dockerfile.write_text("FROM scratch\n")
+
+        cfg = mab.BuildConfig(
+            image_name="quay.io/org/img:latest",
+            dockerfile_path=str(dockerfile),
+            context_path=str(context),
+            platforms=["amd64"],
+            labels=[],
+            cache_dir=str(tmp_path / "cache"),
+            commit_sha="abc123",
+            opm_version="",
+            skip_opm_cache=True,
+        )
+        builder = mab.MultiArchBuilder(cfg)
+        mock_run_cmd.return_value = '{"Digest": "sha256:abc"}'
+
+        builder.build_all()
+
+        mock_gen_cache.assert_not_called()
+
+    @patch("multi_arch_builder.MultiArchBuilder._create_and_push_manifest_list")
+    @patch("multi_arch_builder.MultiArchBuilder._build_image")
+    @patch("multi_arch_builder.generate_cache_locally")
+    @patch("multi_arch_builder.MultiArchBuilder._prepare_system")
+    @patch("multi_arch_builder.run_cmd")
+    def test_does_not_require_configs_directory_when_skip_opm_cache(
+        self,
+        mock_run_cmd,
+        mock_prepare,
+        mock_gen_cache,
+        mock_build,
+        mock_manifest,
+        tmp_path,
+    ):
+        context = tmp_path / "ctx"
+        context.mkdir()
+        dockerfile = context / "Dockerfile"
+        dockerfile.write_text("FROM scratch\n")
+
+        cfg = mab.BuildConfig(
+            image_name="quay.io/org/img:latest",
+            dockerfile_path=str(dockerfile),
+            context_path=str(context),
+            platforms=["amd64"],
+            labels=[],
+            cache_dir=str(tmp_path / "cache"),
+            commit_sha="abc123",
+            opm_version="",
+            skip_opm_cache=True,
+        )
+        builder = mab.MultiArchBuilder(cfg)
+        mock_run_cmd.return_value = '{"Digest": "sha256:abc"}'
+
+        builder.build_all()
+
+        mock_build.assert_called_once()
+
+    @patch("multi_arch_builder.MultiArchBuilder._create_and_push_manifest_list")
+    @patch("multi_arch_builder.MultiArchBuilder._build_image")
+    @patch("multi_arch_builder.generate_cache_locally")
+    @patch("multi_arch_builder.MultiArchBuilder._prepare_system")
+    @patch("multi_arch_builder.run_cmd")
+    def test_still_generates_cache_when_skip_opm_cache_is_false(
+        self,
+        mock_run_cmd,
+        mock_prepare,
+        mock_gen_cache,
+        mock_build,
+        mock_manifest,
+        tmp_path,
+    ):
+        context = tmp_path / "ctx"
+        context.mkdir()
+        catalog = context / "configs"
+        catalog.mkdir()
+        (catalog / "catalog.json").write_text("{}")
+        cache_dir = tmp_path / "cache"
+        cache_dir.mkdir()
+        dockerfile = context / "Dockerfile"
+        dockerfile.write_text("FROM scratch\n")
+
+        cfg = mab.BuildConfig(
+            image_name="quay.io/org/img:latest",
+            dockerfile_path=str(dockerfile),
+            context_path=str(context),
+            platforms=["amd64"],
+            labels=[],
+            cache_dir=str(cache_dir),
+            commit_sha="abc123",
+            opm_version="v1.40.0",
+            skip_opm_cache=False,
+        )
+        builder = mab.MultiArchBuilder(cfg)
+
+        def populate_cache(*args, **kwargs):
+            (cache_dir / "packages.json").write_text("{}")
+
+        mock_gen_cache.side_effect = populate_cache
+        mock_run_cmd.return_value = '{"Digest": "sha256:abc"}'
+
+        builder.build_all()
+
+        mock_gen_cache.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
@@ -924,6 +1065,38 @@ class TestLoadConfigFromEnv:
 
         with pytest.raises(mab.IIBError, match="arches is required"):
             mab.load_config_from_env()
+
+    def test_regenerate_bundle_does_not_require_opm_version(self, tmp_path, monkeypatch):
+        context = tmp_path / "ctx"
+        context.mkdir()
+        (context / ".iib-build-metadata.json").write_text(
+            json.dumps({"arches": ["amd64"], "package_name": "my-operator"}),
+            encoding="utf-8",
+        )
+        monkeypatch.setenv("IMAGE", "quay.io/org/img:latest")
+        monkeypatch.setenv("COMMIT_SHA", "sha123")
+        monkeypatch.setenv("CONTEXT", str(context))
+
+        cfg = mab.load_config_from_env()
+        assert cfg.opm_version == ""
+
+    def test_regenerate_bundle_sets_skip_opm_cache(self, tmp_path, monkeypatch):
+        context = tmp_path / "ctx"
+        context.mkdir()
+        (context / ".iib-build-metadata.json").write_text(
+            json.dumps({"arches": ["amd64"], "package_name": "my-operator"}),
+            encoding="utf-8",
+        )
+        monkeypatch.setenv("IMAGE", "quay.io/org/img:latest")
+        monkeypatch.setenv("COMMIT_SHA", "sha123")
+        monkeypatch.setenv("CONTEXT", str(context))
+
+        cfg = mab.load_config_from_env()
+        assert cfg.skip_opm_cache is True
+
+    def test_non_regenerate_bundle_sets_skip_opm_cache_false(self, metadata_build_context):
+        cfg = mab.load_config_from_env()
+        assert cfg.skip_opm_cache is False
 
 
 # ---------------------------------------------------------------------------
