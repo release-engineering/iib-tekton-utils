@@ -36,7 +36,7 @@ jobs:
 
       - name: Push iib-build-task to quay.io
         id: push-iib-build-task
-        uses: redhat-actions/push-to-registry@v2.7.1
+        uses: redhat-actions/push-to-registry@v2.8
         with:
           image: ${{ steps.build-iib-build-task.outputs.image }}
           tags: ${{ steps.build-iib-build-task.outputs.tags }}
