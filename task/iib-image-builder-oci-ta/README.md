@@ -36,10 +36,11 @@ Place a JSON file in the build context (default: `.iib-build-metadata.json`). Re
 
 | Field | Required | Description |
 |---|---|---|
-| `opm_version` | yes | OPM version for cache generation. Accepts `v1.48.0`, `opm-v1.48.0`, or IIB's default `opm` (see [opm_version normalization](#opm_version-normalization) below). Must not be empty. |
+| `opm_version` | yes* | OPM version for cache generation. Accepts `v1.48.0`, `opm-v1.48.0`, or IIB's default `opm` (see [opm_version normalization](#opm_version-normalization) below). Must not be empty. *Not required for regenerate-bundle requests (see below). |
 | `arches` | yes | Target architectures, e.g. `["amd64", "arm64", "ppc64le", "s390x"]` |
 | `labels` | no | Object of label key/value pairs applied to built images |
 | `binary_image` | no | Passed to the Dockerfile as `BINARY_IMAGE` build arg |
+| `package_name` | no | When present, signals a **regenerate-bundle** request. OPM cache generation, `configs/` directory, and `opm_version` are not required — the build proceeds directly from the Dockerfile. |
 
 Example:
 

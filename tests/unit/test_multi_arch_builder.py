@@ -1098,6 +1098,27 @@ class TestLoadConfigFromEnv:
         cfg = mab.load_config_from_env()
         assert cfg.skip_opm_cache is False
 
+    def test_regenerate_bundle_ignores_malformed_opm_version(self, tmp_path, monkeypatch):
+        context = tmp_path / "ctx"
+        context.mkdir()
+        (context / ".iib-build-metadata.json").write_text(
+            json.dumps(
+                {
+                    "arches": ["amd64"],
+                    "package_name": "my-operator",
+                    "opm_version": "",
+                }
+            ),
+            encoding="utf-8",
+        )
+        monkeypatch.setenv("IMAGE", "quay.io/org/img:latest")
+        monkeypatch.setenv("COMMIT_SHA", "sha123")
+        monkeypatch.setenv("CONTEXT", str(context))
+
+        cfg = mab.load_config_from_env()
+        assert cfg.opm_version == ""
+        assert cfg.skip_opm_cache is True
+
 
 # ---------------------------------------------------------------------------
 # main()

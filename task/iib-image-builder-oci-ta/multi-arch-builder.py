@@ -796,12 +796,13 @@ def load_config_from_env(metadata_file_path: Optional[str] = None) -> BuildConfi
     is_regenerate_bundle = "package_name" in metadata
     if is_regenerate_bundle:
         logger.info("Detected regenerate-bundle request (package_name present in metadata)")
-
-    raw_opm_version = metadata.get("opm_version")
-    opm_version = opm_version_from_metadata(metadata)
-    if opm_version is None and not is_regenerate_bundle:
-        raise IIBError(f"opm_version is required in {metadata_path}")
-    if opm_version:
+        opm_version = ""
+        logger.info("No OPM version required for regenerate-bundle request")
+    else:
+        raw_opm_version = metadata.get("opm_version")
+        opm_version = opm_version_from_metadata(metadata)
+        if opm_version is None:
+            raise IIBError(f"opm_version is required in {metadata_path}")
         logger.info(
             "OPM version %s loaded from %s (raw: %r)",
             opm_version,
