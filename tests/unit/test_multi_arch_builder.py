@@ -488,6 +488,122 @@ class TestBuildImage:
 
 
 # ---------------------------------------------------------------------------
+# MultiArchBuilder._push_image
+# ---------------------------------------------------------------------------
+
+
+class TestPushImage:
+    @patch("multi_arch_builder.run_cmd")
+    def test_executes_buildah_push_with_correct_flags(self, mock_run_cmd, builder):
+        builder._push_image.__wrapped__(builder, "quay.io/org/img:latest-amd64")
+        cmd = mock_run_cmd.call_args[0][0]
+        assert cmd == [
+            "buildah",
+            "push",
+            "--tls-verify=true",
+            "quay.io/org/img:latest-amd64",
+            "docker://quay.io/org/img:latest-amd64",
+        ]
+
+    @patch("multi_arch_builder.run_cmd", side_effect=mab.ExternalServiceError("503"))
+    def test_raises_external_service_error_on_network_failure(self, mock_run_cmd, builder):
+        with pytest.raises(mab.ExternalServiceError):
+            builder._push_image.__wrapped__(builder, "quay.io/org/img:latest-amd64")
+
+
+# ---------------------------------------------------------------------------
+# MultiArchBuilder._verify_manifest_list
+# ---------------------------------------------------------------------------
+
+
+class TestVerifyManifestList:
+    @patch("multi_arch_builder.run_cmd")
+    def test_passes_when_all_arches_present(self, mock_run_cmd, builder):
+        builder.config.platforms = ["amd64", "arm64"]
+        mock_run_cmd.return_value = json.dumps(
+            {
+                "manifests": [
+                    {"platform": {"architecture": "amd64"}},
+                    {"platform": {"architecture": "arm64"}},
+                ]
+            }
+        )
+        builder._verify_manifest_list("quay.io/org/img:v1", ["img-amd64", "img-arm64"])
+
+    @patch("multi_arch_builder.run_cmd")
+    def test_raises_when_arch_missing(self, mock_run_cmd, builder):
+        builder.config.platforms = ["amd64", "arm64", "s390x"]
+        mock_run_cmd.return_value = json.dumps(
+            {
+                "manifests": [
+                    {"platform": {"architecture": "amd64"}},
+                    {"platform": {"architecture": "arm64"}},
+                ]
+            }
+        )
+        with pytest.raises(mab.IIBError, match="expected.*s390x"):
+            builder._verify_manifest_list("quay.io/org/img:v1", ["img-amd64", "img-arm64"])
+
+    @patch("multi_arch_builder.run_cmd")
+    def test_raises_when_extra_arch_present(self, mock_run_cmd, builder):
+        builder.config.platforms = ["amd64"]
+        mock_run_cmd.return_value = json.dumps(
+            {
+                "manifests": [
+                    {"platform": {"architecture": "amd64"}},
+                    {"platform": {"architecture": "arm64"}},
+                ]
+            }
+        )
+        with pytest.raises(mab.IIBError, match="expected"):
+            builder._verify_manifest_list("quay.io/org/img:v1", ["img-amd64"])
+
+    @patch("multi_arch_builder.MultiArchBuilder._create_and_push_manifest_list")
+    @patch("multi_arch_builder.MultiArchBuilder._build_image")
+    @patch("multi_arch_builder.generate_cache_locally")
+    @patch("multi_arch_builder.MultiArchBuilder._prepare_system")
+    @patch("multi_arch_builder.run_cmd")
+    def test_parallel_push_reports_all_failures(
+        self,
+        mock_run_cmd,
+        mock_prepare,
+        mock_gen_cache,
+        mock_build,
+        mock_manifest,
+        builder,
+        tmp_path,
+    ):
+        """When multiple arch pushes fail, all are reported before raising."""
+        context = tmp_path / "ctx"
+        context.mkdir()
+        (context / "configs").mkdir()
+        cache_dir = tmp_path / "cache"
+        cache_dir.mkdir()
+        dockerfile = context / "Dockerfile"
+        dockerfile.write_text("FROM scratch\n")
+        builder.config.context_path = str(context)
+        builder.config.dockerfile_path = str(dockerfile)
+        builder.config.cache_dir = str(cache_dir)
+        builder.config.platforms = ["amd64", "arm64"]
+
+        def run_cmd_side_effect(cmd, *args, **kwargs):
+            if cmd[0] == "buildah" and "push" in cmd:
+                raise mab.IIBError(f"push failed for {cmd[-1]}")
+            return '{"Digest": "sha256:abc"}'
+
+        mock_run_cmd.side_effect = run_cmd_side_effect
+        mock_gen_cache.side_effect = lambda *a, **kw: (
+            (cache_dir / "cache").mkdir(exist_ok=True),
+            (cache_dir / "cache" / "pkg.json").write_text("{}"),
+            (cache_dir / "digest").write_text("abc"),
+        )
+
+        with pytest.raises(mab.IIBError, match="Failed to push per-arch images"):
+            builder.build_all()
+        mock_manifest.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
 # MultiArchBuilder.build_all – catalog dir permission normalization
 # ---------------------------------------------------------------------------
 
@@ -593,28 +709,40 @@ class TestBuildAllNormalizesConfigsPermissions:
 
 
 class TestCreateAndPushManifestList:
+    @staticmethod
+    def _manifest_inspect_json(arches):
+        return json.dumps({"manifests": [{"platform": {"architecture": a}} for a in arches]})
+
     @patch("multi_arch_builder.run_cmd")
-    def test_creates_and_pushes_manifest_for_each_tag(self, mock_run_cmd, builder):
-        """With a commit_sha, two tags should be created and pushed."""
+    def test_creates_manifest_and_copies_to_second_tag(self, mock_run_cmd, builder):
+        """With a commit_sha, primary tag is built+pushed, second is skopeo-copied."""
         builder.config.image_name = "quay.io/org/img:latest"
         builder.config.commit_sha = "abc123"
         platform_images = [
             "quay.io/org/img:latest-amd64",
             "quay.io/org/img:latest-arm64",
         ]
-        # First call (rm) raises IIBError("Manifest list not found locally.") → tolerated
 
         def side_effect(cmd, *args, **kwargs):
             if "rm" in cmd:
                 raise mab.IIBError("Manifest list not found locally.")
+            if "inspect" in cmd:
+                return self._manifest_inspect_json(["amd64", "arm64"])
             return ""
 
         mock_run_cmd.side_effect = side_effect
-        # Should not raise
         builder._create_and_push_manifest_list.__wrapped__(builder, platform_images)
 
-        # Expect: for each of 2 tags → rm + create + 2×add + push = 5 calls × 2 = 10
-        assert mock_run_cmd.call_count == 10
+        # Primary tag: rm + create + 2×add + inspect + push = 6
+        # Second tag: 1 skopeo copy = 7 total
+        assert mock_run_cmd.call_count == 7
+        # Last call should be skopeo copy
+        last_cmd = mock_run_cmd.call_args_list[-1][0][0]
+        assert last_cmd[0] == "skopeo"
+        assert "copy" in last_cmd
+        assert "--all" in last_cmd
+        assert "docker://quay.io/org/img:latest" in last_cmd
+        assert "docker://quay.io/org/img:abc123" in last_cmd
 
     @patch("multi_arch_builder.run_cmd")
     def test_removes_existing_manifest_before_creating(self, mock_run_cmd, builder):
@@ -627,6 +755,8 @@ class TestCreateAndPushManifestList:
             if "rm" in cmd:
                 rm_attempted.append(True)
                 raise mab.IIBError("Manifest list not found locally.")
+            if "inspect" in cmd:
+                return self._manifest_inspect_json(["amd64", "arm64"])
             return ""
 
         mock_run_cmd.side_effect = side_effect
@@ -659,10 +789,12 @@ class TestCreateAndPushManifestList:
         push_cmds = []
 
         def side_effect(cmd, *args, **kwargs):
-            if "push" in cmd:
+            if cmd[0] == "buildah" and "push" in cmd:
                 push_cmds.append(cmd)
             if "rm" in cmd:
                 raise mab.IIBError("Manifest list not found locally.")
+            if "inspect" in cmd:
+                return self._manifest_inspect_json(["amd64", "arm64"])
             return ""
 
         mock_run_cmd.side_effect = side_effect

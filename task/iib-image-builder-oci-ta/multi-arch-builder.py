@@ -12,6 +12,7 @@ import re
 import shutil
 import subprocess
 import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass, field
@@ -117,9 +118,10 @@ def run_cmd(
             ):
                 raise IIBError("Error deleting packages from database")
         elif cmd[0] == "buildah":
-            # Check for HTTP 403 or 50X errors on buildah
+            # Check for transient network/registry errors on any buildah operation
             network_regexes = [
                 r".*([e,E]rror:? creating build container).*(:?(403|50[0-9]|125)\s?.*$)",
+                r".*((?:403 Forbidden|50[0-9] \w+).*$)",
                 r".*(read\/write on closed pipe.*$)",
             ]
             for regex in network_regexes:
@@ -493,7 +495,6 @@ class MultiArchBuilder:
             destination,
         )
 
-        # Prepare buildah command with improved options
         cmd = [
             "buildah",
             "bud",
@@ -513,20 +514,16 @@ class MultiArchBuilder:
             self.config.dockerfile_path,
         ]
 
-        # Add labels
         for label in self.config.labels:
             cmd.extend(["--label", label.strip()])
 
         if self.config.binary_image:
             cmd.extend(["--build-arg", f"BINARY_IMAGE={self.config.binary_image}"])
 
-        # Add context
         cmd.append(self.config.context_path)
 
-        # Execute build with retry logic
         run_cmd(cmd, {"timeout": 3600}, f"build for {arch} failed")
 
-        # Verify architecture was set correctly
         logger.debug("Verifying that %s was built with expected arch %s", destination, arch)
         self._verify_image_architecture(destination, arch)
 
@@ -537,9 +534,12 @@ class MultiArchBuilder:
         :param str image_name: the image name to verify
         :param str expected_arch: the expected architecture
         """
-
-        # Get image architecture using skopeo inspect
-        inspect_cmd = ["skopeo", "inspect", "--no-tags", f"containers-storage:{image_name}"]
+        inspect_cmd = [
+            "skopeo",
+            "inspect",
+            "--no-tags",
+            f"containers-storage:{image_name}",
+        ]
         result = run_cmd(inspect_cmd, {"timeout": 60}, f"inspect {image_name} failed")
         image_data = json.loads(result)
 
@@ -571,6 +571,43 @@ class MultiArchBuilder:
     @retry(
         before_sleep=before_sleep_log(logger, logging.WARNING),
         reraise=True,
+        retry=retry_if_exception_type(ExternalServiceError),
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=2),
+    )
+    def _push_image(self, image: str) -> None:
+        """Push a single architecture image to the registry."""
+        logger.info("Pushing %s to registry", image)
+        cmd = [
+            "buildah",
+            "push",
+            "--tls-verify=true",
+            image,
+            f"docker://{image}",
+        ]
+        run_cmd(cmd, {"timeout": 3600}, exc_msg=f"Failed to push {image}")
+        logger.info("✓ Pushed %s", image)
+
+    def _verify_manifest_list(self, manifest_name: str, platform_images: List[str]) -> None:
+        """Verify the local manifest list contains all expected architectures."""
+        result = run_cmd(
+            ["buildah", "manifest", "inspect", manifest_name],
+            exc_msg=f"Failed to inspect manifest list {manifest_name}",
+        )
+        manifest_data = json.loads(result)
+        manifests = manifest_data.get("manifests", [])
+        found_arches = sorted(m.get("platform", {}).get("architecture", "") for m in manifests)
+        expected_arches = sorted(self.config.arch_map.get(p, p) for p in self.config.platforms)
+        if found_arches != expected_arches:
+            raise IIBError(
+                f"Manifest list {manifest_name} has architectures {found_arches}, "
+                f"expected {expected_arches}"
+            )
+        logger.info("✓ Manifest list %s verified: %s", manifest_name, ", ".join(found_arches))
+
+    @retry(
+        before_sleep=before_sleep_log(logger, logging.WARNING),
+        reraise=True,
         retry=retry_if_exception_type(IIBError),
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=2),
@@ -587,55 +624,71 @@ class MultiArchBuilder:
         """
         buildah_manifest_cmd = ["buildah", "manifest"]
         image_name_repo, image_name_tag = self.config.image_name.split(":", 1)
-        # Initialize _tags with the output image tag
         _tags = [image_name_tag]
         if self.config.commit_sha:
             _tags.append(self.config.commit_sha)
 
-        output_pull_specs = []
-        for tag in _tags:
-            output_pull_spec = f"{image_name_repo}:{tag}"
-            output_pull_specs.append(output_pull_spec)
-            try:
-                run_cmd(
-                    buildah_manifest_cmd + ["rm", output_pull_spec],
-                    exc_msg=(
-                        f"Failed to remove local manifest list. {output_pull_spec} does not exist"
-                    ),
-                )
-            except IIBError as e:
-                error_msg = str(e)
-                if "Manifest list not found locally." not in error_msg:
-                    raise IIBError(f"Error removing local manifest list: {error_msg}")
-                logger.debug(
-                    "Manifest list cannot be removed. No manifest list %s found", output_pull_spec
-                )
-            logger.info("Creating the manifest list %s locally", output_pull_spec)
-            run_cmd(
-                buildah_manifest_cmd + ["create", output_pull_spec],
-                exc_msg=f"Failed to create the manifest list locally: {output_pull_spec}",
-            )
-            for arch_image in platform_images:
-                run_cmd(
-                    buildah_manifest_cmd + ["add", output_pull_spec, arch_image],
-                    exc_msg=(
-                        f"Failed to add {arch_image} to the local manifest list: {output_pull_spec}"
-                    ),
-                )
+        primary_pull_spec = f"{image_name_repo}:{_tags[0]}"
 
-            logger.debug("Pushing manifest list %s", output_pull_spec)
+        # Build and push the manifest list for the primary tag
+        try:
             run_cmd(
-                buildah_manifest_cmd
-                + [
-                    "push",
+                buildah_manifest_cmd + ["rm", primary_pull_spec],
+                exc_msg=(
+                    f"Failed to remove local manifest list. {primary_pull_spec} does not exist"
+                ),
+            )
+        except IIBError as e:
+            error_msg = str(e)
+            if "Manifest list not found locally." not in error_msg:
+                raise IIBError(f"Error removing local manifest list: {error_msg}")
+            logger.debug(
+                "Manifest list cannot be removed. No manifest list %s found",
+                primary_pull_spec,
+            )
+        logger.info("Creating the manifest list %s locally", primary_pull_spec)
+        run_cmd(
+            buildah_manifest_cmd + ["create", primary_pull_spec],
+            exc_msg=f"Failed to create the manifest list locally: {primary_pull_spec}",
+        )
+        for arch_image in platform_images:
+            run_cmd(
+                buildah_manifest_cmd + ["add", primary_pull_spec, f"docker://{arch_image}"],
+                exc_msg=(
+                    f"Failed to add {arch_image} to the local manifest list: {primary_pull_spec}"
+                ),
+            )
+
+        self._verify_manifest_list(primary_pull_spec, platform_images)
+
+        logger.debug("Pushing manifest list %s", primary_pull_spec)
+        run_cmd(
+            buildah_manifest_cmd
+            + [
+                "push",
+                "--all",
+                "--format",
+                "v2s2",
+                "--tls-verify=true",
+                primary_pull_spec,
+                f"docker://{primary_pull_spec}",
+            ],
+            exc_msg=f"Failed to push the manifest list to {primary_pull_spec}",
+        )
+
+        # Copy the manifest list to additional tags via skopeo (server-side)
+        for tag in _tags[1:]:
+            additional_pull_spec = f"{image_name_repo}:{tag}"
+            logger.info("Copying manifest list to %s", additional_pull_spec)
+            run_cmd(
+                [
+                    "skopeo",
+                    "copy",
                     "--all",
-                    "--format",
-                    "v2s2",
-                    "--tls-verify=true",
-                    output_pull_spec,
-                    f"docker://{output_pull_spec}",
+                    f"docker://{primary_pull_spec}",
+                    f"docker://{additional_pull_spec}",
                 ],
-                exc_msg=f"Failed to push the manifest list to {output_pull_spec}",
+                exc_msg=f"Failed to copy manifest list to {additional_pull_spec}",
             )
 
     def build_all(self, ca_bundle_path: Optional[str] = None) -> Dict[str, Any]:
@@ -715,18 +768,30 @@ class MultiArchBuilder:
             logger.error(f"Failed to copy cache to build context: {e}")
             raise IIBError(f"Failed to copy cache to build context: {e}")
 
-        # Build images for each platform
+        # Build and verify images sequentially, then push in parallel
         platform_images = []
         for platform in self.config.platforms:
-            try:
-                platform_clean = platform.strip()
-                # output-image:tag-platform
-                platform_image = f"{self.config.image_name}-{platform_clean}"
-                self._build_image(platform_clean, platform_image)
-                platform_images.append(platform_image)
-            except (IIBError, ExternalServiceError) as e:
-                logger.error(f"Failed to build for {platform}: {e}")
-                raise
+            platform_clean = platform.strip()
+            platform_image = f"{self.config.image_name}-{platform_clean}"
+            self._build_image(platform_clean, platform_image)
+            platform_images.append(platform_image)
+
+        # Push all per-arch images in parallel so registry layers are
+        # present before manifest list creation
+        logger.info("Pushing per-arch images in parallel")
+        with ThreadPoolExecutor(max_workers=len(platform_images)) as executor:
+            futures = {executor.submit(self._push_image, img): img for img in platform_images}
+            errors = {}
+            for future in as_completed(futures):
+                img = futures[future]
+                try:
+                    future.result()
+                except Exception as e:
+                    logger.error("Failed to push %s: %s", img, e)
+                    errors[img] = e
+            if errors:
+                failed = ", ".join(sorted(errors))
+                raise IIBError(f"Failed to push per-arch images: {failed}")
 
         # Create and push manifest
         logger.info("Creating and pushing multi-arch manifest")
