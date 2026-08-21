@@ -1,0 +1,19 @@
+---
+# Hadolint config for Konflux build task container image.
+ignored:
+  # DL3003: Use WORKDIR to switch directory — we intentionally use `cd` in
+  # multi-step RUN blocks where a persistent WORKDIR change is not desired.
+  - DL3003
+  # DL3013: Pin versions in pip — OPM/build tooling is pinned elsewhere, so
+  # pinning every transient pip install here adds churn without added safety.
+  - DL3013
+  # DL3041: Pin versions in dnf install — we rely on the base image's curated
+  # package set rather than pinning exact RPM versions.
+  - DL3041
+  # DL4006: Set `SHELL -o pipefail` before RUN with a pipe — the base image's
+  # default shell does not support this option, so enabling it would break builds.
+  - DL4006
+trustedRegistries:
+  - quay.io
+  - registry.access.redhat.com
+  - registry.redhat.io

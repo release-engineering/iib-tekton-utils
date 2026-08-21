@@ -4,5 +4,11 @@ extends: default
 rules:
   line-length:
     max: 180
+    level: warning
+  document-start: disable
+  indentation:
+    indent-sequences: consistent
+  comments:
+    min-spaces-from-content: 1
   truthy:
-    allowed-values: ['true', 'false', 'on']
+    allowed-values: ['true', 'false', 'on', 'off']
