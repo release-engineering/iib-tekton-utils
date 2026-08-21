@@ -13,21 +13,40 @@ permissions:
   contents: read
 
 jobs:
-  tox:
-    name: tox
+  lint:
+    name: static-lint
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: '3.12'
 
       - name: Install tox
         run: pip install tox
 
-      - name: Run tox
-        run: tox
+      - name: Run static lint
+        run: tox -m static
+
+  test:
+    name: tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      - name: Install tox
+        run: pip install tox
+
+      - name: Run tests
+        run: tox -m test

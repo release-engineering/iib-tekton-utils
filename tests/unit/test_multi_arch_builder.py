@@ -11,9 +11,8 @@ import os
 import subprocess
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 import multi_arch_builder as mab
+import pytest
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -429,10 +428,7 @@ class TestVerifyImageArchitecture:
     def test_inspect_command_uses_containers_storage_scheme(self, mock_run_cmd, builder):
         mock_run_cmd.return_value = json.dumps({"Architecture": "arm64"})
         image = "quay.io/org/img:latest-arm64"
-        try:
-            builder._verify_image_architecture(image, "arm64")
-        except Exception:
-            pass
+        builder._verify_image_architecture(image, "arm64")
         cmd = mock_run_cmd.call_args[0][0]
         assert f"containers-storage:{image}" in cmd
 

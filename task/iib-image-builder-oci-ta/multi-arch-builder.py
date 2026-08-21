@@ -4,6 +4,8 @@ Multi-architecture container builder with retry logic and cache management.
 This script orchestrates buildah operations for building multi-arch images.
 """
 
+from __future__ import annotations
+
 import argparse
 import json
 import logging
@@ -12,15 +14,16 @@ import re
 import shutil
 import subprocess
 import sys
-from pathlib import Path
-from typing import List, Dict, Any, Optional
 from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
+
 from tenacity import (
+    before_sleep_log,
     retry,
+    retry_if_exception_type,
     stop_after_attempt,
     wait_exponential,
-    retry_if_exception_type,
-    before_sleep_log,
 )
 
 # Configure logging
@@ -52,7 +55,7 @@ class ExternalServiceError(IIBBaseException):
 def _regex_reverse_search(
     regex: str,
     proc_response: subprocess.CompletedProcess,
-) -> Optional[re.Match]:
+) -> re.Match | None:
     """
     Try to match the STDERR content with a regular expression from bottom to up.
 
@@ -72,9 +75,9 @@ def _regex_reverse_search(
 
 
 def run_cmd(
-    cmd: List[str],
-    params: Optional[Dict[str, Any]] = None,
-    exc_msg: Optional[str] = None,
+    cmd: list[str],
+    params: dict[str, Any] | None = None,
+    exc_msg: str | None = None,
     strict: bool = True,
 ) -> str:
     """
@@ -95,16 +98,17 @@ def run_cmd(
     params.setdefault("encoding", "utf-8")
     params.setdefault("stderr", subprocess.PIPE)
     params.setdefault("stdout", subprocess.PIPE)
+    check = params.pop("check", False)
 
     logger.debug('Running the command "%s"', " ".join(cmd))
-    response: subprocess.CompletedProcess = subprocess.run(cmd, **params)
+    response: subprocess.CompletedProcess = subprocess.run(cmd, check=check, **params)
 
     if strict and response.returncode != 0:
-        if set(["buildah", "manifest", "rm"]) <= set(cmd) and "image not known" in response.stderr:
+        if {"buildah", "manifest", "rm"} <= set(cmd) and "image not known" in response.stderr:
             raise IIBError("Manifest list not found locally.")
         logger.error('The command "%s" failed with: %s', " ".join(cmd), response.stderr)
         regex: str
-        match: Optional[re.Match]
+        match: re.Match | None
         if Path(cmd[0]).stem.startswith("opm"):
             # Capture the error message right before the help display
             regex = r"^(?:Error: )(.+)$"
@@ -139,15 +143,15 @@ class BuildConfig:
     image_name: str
     dockerfile_path: str
     context_path: str
-    platforms: List[str]
-    labels: List[str]
+    platforms: list[str]
+    labels: list[str]
     cache_dir: str
     commit_sha: str
     opm_version: str
     binary_image: str = ""
     skip_opm_cache: bool = False
     # Architecture mapping for platform names to expected architecture values
-    arch_map: Dict[str, str] = field(
+    arch_map: dict[str, str] = field(
         default_factory=lambda: {
             "amd64": "amd64",
             "arm64": "arm64",
@@ -174,7 +178,7 @@ def resolve_iib_build_metadata_path(context_path: str, metadata_file_path: str) 
     return Path(context_path) / path
 
 
-def load_iib_build_metadata(metadata_path: Path) -> Dict[str, Any]:
+def load_iib_build_metadata(metadata_path: Path) -> dict[str, Any]:
     """
     Load IIB build metadata from the configured metadata file.
 
@@ -199,7 +203,7 @@ def load_iib_build_metadata(metadata_path: Path) -> Dict[str, Any]:
     return metadata
 
 
-def opm_version_from_metadata(metadata: Dict[str, Any]) -> Optional[str]:
+def opm_version_from_metadata(metadata: dict[str, Any]) -> str | None:
     """
     Extract ``opm_version`` from IIB build metadata.
 
@@ -263,7 +267,7 @@ def resolve_opm_binary_path(opm_version: str) -> str:
     )
 
 
-def labels_from_metadata(metadata: Dict[str, Any]) -> Optional[List[str]]:
+def labels_from_metadata(metadata: dict[str, Any]) -> list[str] | None:
     """
     Extract ``labels`` from IIB build metadata.
 
@@ -285,7 +289,7 @@ def labels_from_metadata(metadata: Dict[str, Any]) -> Optional[List[str]]:
     return [f"{key}={value}" for key, value in raw_labels.items()]
 
 
-def arches_from_metadata(metadata: Dict[str, Any]) -> Optional[List[str]]:
+def arches_from_metadata(metadata: dict[str, Any]) -> list[str] | None:
     """
     Extract ``arches`` from IIB build metadata.
 
@@ -314,7 +318,7 @@ def arches_from_metadata(metadata: Dict[str, Any]) -> Optional[List[str]]:
     return arches
 
 
-def binary_image_from_metadata(metadata: Dict[str, Any]) -> Optional[str]:
+def binary_image_from_metadata(metadata: dict[str, Any]) -> str | None:
     """
     Extract ``binary_image`` from IIB build metadata.
 
@@ -578,7 +582,7 @@ class MultiArchBuilder:
     )
     def _create_and_push_manifest_list(
         self,
-        platform_images: List[str],
+        platform_images: list[str],
     ) -> None:
         """
         Create and push the manifest list to the configured registry.
@@ -639,7 +643,7 @@ class MultiArchBuilder:
                 exc_msg=f"Failed to push the manifest list to {output_pull_spec}",
             )
 
-    def build_all(self, ca_bundle_path: Optional[str] = None) -> Dict[str, Any]:
+    def build_all(self, ca_bundle_path: str | None = None) -> dict[str, Any]:
         """
         Build multi-arch image and return results.
 
@@ -715,7 +719,7 @@ class MultiArchBuilder:
                     shutil.rmtree(context_cache_dir)
                 shutil.copytree(self.config.cache_dir, context_cache_dir)
                 logger.info(f"✓ Cache copied to {context_cache_dir}")
-            except (OSError, IOError) as e:
+            except OSError as e:
                 logger.error(f"Failed to copy cache to build context: {e}")
                 raise IIBError(f"Failed to copy cache to build context: {e}")
 
@@ -756,7 +760,7 @@ class MultiArchBuilder:
         return results
 
 
-def load_config_from_env(metadata_file_path: Optional[str] = None) -> BuildConfig:
+def load_config_from_env(metadata_file_path: str | None = None) -> BuildConfig:
     """
     Load configuration from IIB build metadata and Tekton environment variables.
 
