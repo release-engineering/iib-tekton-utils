@@ -7,4 +7,4 @@ tenacity==8.2.3
 # Test dependencies
 pytest==8.2.1
 pytest-mock==3.14.0
-PyYAML==6.0.1
+PyYAML==6.0.3
