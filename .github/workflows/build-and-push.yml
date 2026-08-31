@@ -28,7 +28,7 @@ jobs:
 
       - name: Build iib-build-task
         id: build-iib-build-task
-        uses: redhat-actions/buildah-build@v2
+        uses: redhat-actions/buildah-build@v3
         with:
           image: iib-build-task
           tags: ${{ steps.meta.outputs.tags }}
