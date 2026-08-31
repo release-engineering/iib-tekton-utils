@@ -580,20 +580,20 @@ class TestBuildAllNormalizesConfigsPermissions:
 
         umask_after = os.umask(0o022)
         os.umask(umask_after)
-        assert umask_after == umask_before, (
-            f"umask not restored after build_all(): was {umask_before:04o}, now {umask_after:04o}"
-        )
+        assert (
+            umask_after == umask_before
+        ), f"umask not restored after build_all(): was {umask_before:04o}, now {umask_after:04o}"
 
         assert observed["catalog_dir"] == 0o755
         assert observed["subdir"] == 0o755
         assert observed["gitkeep"] == 0o644
         assert observed["catalog_json"] == 0o644
-        assert observed["cache_dir"] == 0o755, (
-            f"cache_dir should be 0755 (setgid stripped), got {observed['cache_dir']:04o}"
-        )
-        assert observed["umask"] == 0o022, (
-            f"umask should be 0022 during cache generation, got {observed['umask']:04o}"
-        )
+        assert (
+            observed["cache_dir"] == 0o755
+        ), f"cache_dir should be 0755 (setgid stripped), got {observed['cache_dir']:04o}"
+        assert (
+            observed["umask"] == 0o022
+        ), f"umask should be 0022 during cache generation, got {observed['umask']:04o}"
 
 
 # ---------------------------------------------------------------------------
