@@ -36,8 +36,20 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_IIB_BUILD_METADATA_FILE_PATH = ".iib-build-metadata.json"
 # OPM binaries bundled in Containerfile.iib-build-task (keep in sync).
-BUNDLED_OPM_VERSIONS = ("v1.26.4", "v1.28.0", "v1.40.0", "v1.44.0", "v1.48.0")
-DEFAULT_OPM_VERSION = BUNDLED_OPM_VERSIONS[-1]
+BUNDLED_OPM_VERSIONS = (
+    "v1.26.4",
+    "v1.28.0",
+    "v1.40.0",
+    "v1.44.0",
+    "v1.48.0",
+    "v1.50.0",
+    "v1.57.0",
+    "v1.61.0",
+    "v1.67.0",
+    "v1.69.0",
+    "v1.73.0",
+)
+DEFAULT_OPM_VERSION = "v1.48.0"
 
 
 class IIBBaseException(Exception):
@@ -208,8 +220,8 @@ def opm_version_from_metadata(metadata: dict[str, Any]) -> str | None:
     Extract ``opm_version`` from IIB build metadata.
 
     Strips the ``opm-`` prefix when present (e.g. ``opm-v1.48.0`` -> ``v1.48.0``).
-    The bare value ``opm`` (IIB's ``iib_default_opm``) is mapped to the latest
-    bundled OPM version in the task image. A missing key returns ``None``; an
+    The bare value ``opm`` (IIB's ``iib_default_opm``) is mapped to the configured
+    default OPM version in the task image. A missing key returns ``None``; an
     empty or whitespace-only value raises ``IIBError``.
 
     :param dict metadata: IIB build metadata

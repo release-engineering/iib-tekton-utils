@@ -863,6 +863,9 @@ class TestOpmVersionFromMetadata:
     def test_maps_bare_opm_to_default(self):
         assert mab.opm_version_from_metadata({"opm_version": "opm"}) == mab.DEFAULT_OPM_VERSION
 
+    def test_maps_bare_opm_to_configured_default_version(self):
+        assert mab.opm_version_from_metadata({"opm_version": "opm"}) == "v1.48.0"
+
     def test_raises_when_opm_version_empty(self):
         with pytest.raises(mab.IIBError, match="must not be empty"):
             mab.opm_version_from_metadata({"opm_version": ""})

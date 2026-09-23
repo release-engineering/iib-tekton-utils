@@ -56,7 +56,9 @@ Example:
 }
 ```
 
-Supported OPM versions are bundled in the task image: `v1.26.4`, `v1.40.0`, `v1.44.0`, and `v1.48.0`.
+Supported OPM versions are bundled in the task image: `v1.26.4`, `v1.28.0`,
+`v1.40.0`, `v1.44.0`, `v1.48.0`, `v1.50.0`, `v1.57.0`, `v1.61.0`,
+`v1.67.0`, `v1.69.0`, and `v1.73.0`.
 
 ### opm_version normalization
 
@@ -66,7 +68,7 @@ The builder resolves `opm_version` from metadata as follows:
 |---|---|
 | Key missing | Build fails: `opm_version is required` |
 | `""` or whitespace only | Build fails: `value must not be empty` |
-| `"opm"` (IIB `iib_default_opm`) | Uses latest bundled version (`v1.48.0`) with a warning in the log |
+| `"opm"` (IIB `iib_default_opm`) | Uses configured default version (`v1.48.0`) with a warning in the log |
 | `"opm-v1.48.0"` | Strips the `opm-` prefix → `v1.48.0` |
 | `"v1.48.0"` | Used as-is |
 
