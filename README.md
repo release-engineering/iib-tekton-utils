@@ -174,7 +174,8 @@ buildah build -f Containerfile.iib-build-task -t iib-build-task:latest .
 
 The image is based on `quay.io/konflux-ci/buildah-task` and bundles:
 
-- Multiple OPM versions (v1.26.4, v1.40.0, v1.44.0, v1.48.0)
+- Multiple OPM versions (v1.26.4, v1.28.0, v1.40.0, v1.44.0, v1.48.0,
+  v1.50.0, v1.57.0, v1.61.0, v1.67.0, v1.69.0, v1.73.0)
 - `skopeo`, `jq`, `python3`, and required Python packages (`tenacity`, `GitPython`, `kubernetes`, `ruamel.yaml`)
 - `multi-arch-builder.py` installed at `/usr/local/bin/`
 
