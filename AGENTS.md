@@ -73,15 +73,15 @@ pip install pre-commit && pre-commit install
 
 ## Pattern References
 
-- **Adding a new Tekton parameter**: Follow pattern in `task/iib-image-builder-oci-ta/iib-image-builder-oci-ta.yaml:17-58`
-- **Adding retry logic**: See `_build_image()` at multi-arch-builder.py:427 for tenacity decorator pattern
-- **Adding a new test class**: Follow `TestRunCmd` pattern in tests/unit/test_multi_arch_builder.py:66
+- **Adding a new Tekton parameter**: Follow pattern in `task/iib-image-builder-oci-ta/iib-image-builder-oci-ta.yaml` (search for `params:`, currently at line 16)
+- **Adding retry logic**: See `def _build_image` in multi-arch-builder.py (search for `@retry`, currently at line 491) for tenacity decorator pattern
+- **Adding a new test class**: Follow `class TestRunCmd` pattern in tests/unit/test_multi_arch_builder.py (currently at line 65)
 
 ## Architecture Notes
 
-- `MultiArchBuilder` class in multi-arch-builder.py:353 orchestrates the build
-- `generate_cache_locally()` at :295 runs OPM to create FBC cache
-- Retry logic via tenacity for buildah operations (:427, :524)
+- `class MultiArchBuilder` in multi-arch-builder.py (currently at line 417) orchestrates the build
+- `def generate_cache_locally` (currently at line 359) runs OPM to create FBC cache
+- Retry logic via tenacity for buildah operations (search for `@retry`, currently at lines 491, 588)
 - Exception hierarchy: `IIBBaseException` > `IIBError`, `ExternalServiceError`
 - Tests use `conftest.py` to load hyphenated `multi-arch-builder.py` via importlib
 
@@ -89,4 +89,4 @@ pip install pre-commit && pre-commit install
 
 - Unit tests mock all subprocess/filesystem calls (no container runtime needed)
 - Tekton tests validate YAML structure with pyyaml (no cluster needed)
-- Key fixtures: `build_config`, `builder` (conftest.py:46, :62)
+- Key fixtures: `build_config`, `builder` (search for `def build_config` / `def builder` in conftest.py, currently at lines 47, 64)
