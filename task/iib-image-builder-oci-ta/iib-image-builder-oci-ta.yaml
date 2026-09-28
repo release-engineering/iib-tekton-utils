@@ -74,9 +74,9 @@ spec:
   stepTemplate:
     computeResources:
       limits:
-        memory: 16Gi
+        memory: 15Gi
       requests:
-        cpu: "4"
+        cpu: "1"
         memory: 4Gi
     env:
       - name: COMMIT_SHA
