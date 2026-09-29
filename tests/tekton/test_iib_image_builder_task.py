@@ -106,16 +106,16 @@ class TestTaskParameters:
 
     def test_required_params_have_no_default(self, params_by_name):
         for name in REQUIRED_PARAMS:
-            assert "default" not in params_by_name[name], (
-                f"Required param '{name}' should not have a default value"
-            )
+            assert (
+                "default" not in params_by_name[name]
+            ), f"Required param '{name}' should not have a default value"
 
     def test_optional_params_have_correct_defaults(self, params_by_name):
         for name, default in OPTIONAL_PARAMS_WITH_DEFAULTS.items():
             assert name in params_by_name, f"Optional param '{name}' is missing"
-            assert str(params_by_name[name].get("default", "")) == str(default), (
-                f"Param '{name}' has wrong default"
-            )
+            assert str(params_by_name[name].get("default", "")) == str(
+                default
+            ), f"Param '{name}' has wrong default"
 
     def test_all_params_have_type(self, params_by_name):
         for name, param in params_by_name.items():
@@ -299,11 +299,11 @@ class TestTaskSteps:
         assert "IIB_BUILD_METADATA_FILE_PATH" in env_names
 
     def test_trusted_artifact_step_has_image(self, steps_by_name):
-        assert steps_by_name["use-trusted-artifact"].get("image"), (
-            "use-trusted-artifact step must specify an image"
-        )
+        assert steps_by_name["use-trusted-artifact"].get(
+            "image"
+        ), "use-trusted-artifact step must specify an image"
 
     def test_build_step_has_image(self, steps_by_name):
-        assert steps_by_name["build-multi-arch"].get("image"), (
-            "build-multi-arch step must specify an image"
-        )
+        assert steps_by_name["build-multi-arch"].get(
+            "image"
+        ), "build-multi-arch step must specify an image"
