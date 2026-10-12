@@ -74,7 +74,7 @@ spec:
   stepTemplate:
     computeResources:
       limits:
-        memory: 15Gi
+        memory: 8Gi
       requests:
         cpu: "1"
         memory: 4Gi
