@@ -72,12 +72,6 @@ spec:
     - name: cache
       emptyDir: {}
   stepTemplate:
-    computeResources:
-      limits:
-        memory: 15Gi
-      requests:
-        cpu: "1"
-        memory: 4Gi
     env:
       - name: COMMIT_SHA
         value: $(params.COMMIT_SHA)
@@ -103,6 +97,12 @@ spec:
   steps:
     - name: use-trusted-artifact
       image: quay.io/konflux-ci/build-trusted-artifacts:latest@sha256:edd8e3affc389320b15b9de8a5aedbf7b0463211b77c981563a2cfa20076b0c0
+      computeResources:
+        limits:
+          memory: 2Gi
+        requests:
+          cpu: 250m
+          memory: 512Mi
       args:
         - use
         - $(params.SOURCE_ARTIFACT)=/var/workdir/source
@@ -113,6 +113,12 @@ spec:
           subPath: ca-bundle.crt
     - name: build-multi-arch
       image: quay.io/exd-guild-hello-operator/iib-build-task:latest
+      computeResources:
+        limits:
+          memory: 15Gi
+        requests:
+          cpu: "1"
+          memory: 4Gi
       workingDir: /var/workdir
       env:
         - name: IIB_BUILD_METADATA_FILE_PATH
