@@ -98,7 +98,12 @@ IIB often writes `"opm"` when no OCP-to-OPM mapping is configured. The task imag
 
 ## Resource requirements
 
-The task step template requests 4 CPU / 4 Gi memory and limits memory to 16 Gi. Multi-arch index builds with OPM cache generation are memory-intensive; adjust cluster quotas accordingly.
+| Step | CPU request | Memory request | Memory limit |
+|---|---:|---:|---:|
+| `use-trusted-artifact` | `250m` | `512Mi` | `2Gi` |
+| `build-multi-arch` | `1` | `4Gi` | `15Gi` |
+
+Neither step sets a CPU limit. Multi-arch index builds with OPM cache generation are memory-intensive; adjust cluster quotas accordingly.
 
 ## Usage
 

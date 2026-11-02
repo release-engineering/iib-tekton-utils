@@ -204,15 +204,9 @@ class TestTaskVolumes:
 
 
 class TestStepTemplate:
-    def test_step_template_sets_memory_limit(self, spec):
+    def test_step_template_does_not_share_compute_resources(self, spec):
         step_template = spec.get("stepTemplate", {})
-        limits = step_template.get("computeResources", {}).get("limits", {})
-        assert "memory" in limits, "stepTemplate must define a memory limit"
-
-    def test_step_template_sets_cpu_request(self, spec):
-        step_template = spec.get("stepTemplate", {})
-        requests = step_template.get("computeResources", {}).get("requests", {})
-        assert "cpu" in requests, "stepTemplate must define a cpu request"
+        assert "computeResources" not in step_template
 
     def test_step_template_propagates_required_env_vars(self, spec):
         step_template = spec.get("stepTemplate", {})
@@ -238,6 +232,20 @@ class TestTaskSteps:
 
     def test_build_multi_arch_step_present(self, steps_by_name):
         assert "build-multi-arch" in steps_by_name
+
+    def test_use_trusted_artifact_has_lightweight_compute_resources(self, steps_by_name):
+        resources = steps_by_name["use-trusted-artifact"]["computeResources"]
+        assert resources == {
+            "requests": {"cpu": "250m", "memory": "512Mi"},
+            "limits": {"memory": "2Gi"},
+        }
+
+    def test_build_multi_arch_retains_build_compute_resources(self, steps_by_name):
+        resources = steps_by_name["build-multi-arch"]["computeResources"]
+        assert resources == {
+            "requests": {"cpu": "1", "memory": "4Gi"},
+            "limits": {"memory": "15Gi"},
+        }
 
     def test_use_trusted_artifact_passes_source_artifact_param(self, steps_by_name):
         step = steps_by_name["use-trusted-artifact"]
