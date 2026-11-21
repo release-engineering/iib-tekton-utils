@@ -159,8 +159,8 @@ Structural validation of `iib-image-builder-oci-ta.yaml` using `pyyaml`. No Kube
 | `TestTaskParameters` | Required params (`IMAGE`, `SOURCE_ARTIFACT`), optional defaults including `IIB_BUILD_METADATA_FILE_PATH` |
 | `TestTaskResults` | `IMAGE_DIGEST`, `IMAGE_REF`, `IMAGE_URL` present and described |
 | `TestTaskVolumes` | All five volumes present, `trusted-ca` uses ConfigMap with `optional: true`, others are `emptyDir` |
-| `TestStepTemplate` | Memory limit, CPU request, env vars (`IMAGE`, `COMMIT_SHA`, `IIB_BUILD_METADATA_FILE_PATH`, `CACHE_DIR`), `shared` and `workdir` volume mounts |
-| `TestTaskSteps` | Both steps present, `use-trusted-artifact` references `SOURCE_ARTIFACT`, `build-multi-arch` script invokes the Python builder with `--iib-build-metadata-file-path`, extracts all three results, mounts `varlibcontainers` and `trusted-ca`, runs as root with `SETFCAP`, passes `--ca-bundle`, uses `set -euo pipefail` |
+| `TestStepTemplate` | No shared `computeResources` in stepTemplate, env vars (`IMAGE`, `COMMIT_SHA`, `IIB_BUILD_METADATA_FILE_PATH`, `CACHE_DIR`), `shared` and `workdir` volume mounts |
+| `TestTaskSteps` | Both steps present, per-step `computeResources` (`use-trusted-artifact`: 250m CPU, 512Mi/2Gi memory; `build-multi-arch`: 1 CPU, 4Gi/15Gi memory), `use-trusted-artifact` references `SOURCE_ARTIFACT`, `build-multi-arch` script invokes the Python builder with `--iib-build-metadata-file-path`, extracts all three results, mounts `varlibcontainers` and `trusted-ca`, runs as root with `SETFCAP`, passes `--ca-bundle`, uses `set -euo pipefail` |
 
 ---
 
